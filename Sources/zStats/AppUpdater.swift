@@ -9,7 +9,8 @@ import StatsCore
     @Published private(set) var canCheckForUpdates = false
     @Published private(set) var automaticallyChecksForUpdates = false
     @Published private(set) var lastUpdateCheckDate: Date?
-    @Published private(set) var status = "Updates aren’t configured for this build."
+    @Published private(set) var status = "The update feed hasn’t been published yet. Update checks will be available in a future release."
+    var canRequestUpdateCheck: Bool { !isAvailable || canCheckForUpdates }
     private var controller: SPUStandardUpdaterController?
     private var observations = Set<AnyCancellable>()
 
@@ -46,8 +47,18 @@ import StatsCore
     }
 
     func checkForUpdates() {
-        guard canCheckForUpdates else { return }
         NSApp.activate(ignoringOtherApps: true)
+        guard isAvailable else {
+            let alert = NSAlert()
+            alert.messageText = isConfigured ? "Couldn’t start updates" : "Updates aren’t published yet"
+            alert.informativeText = status
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            if let window = NSApp.keyWindow { alert.beginSheetModal(for: window) }
+            else { alert.runModal() }
+            return
+        }
+        guard canCheckForUpdates else { return }
         controller?.checkForUpdates(nil)
     }
 }

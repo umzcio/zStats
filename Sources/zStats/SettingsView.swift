@@ -142,24 +142,22 @@ struct SettingsView: View {
                     Spacer()
                 }.padding(.vertical, 8)
             }
-            if updater.isConfigured {
-                SettingsCard("Updates") {
-                    if updater.isAvailable {
-                        Toggle("Automatically check for updates", isOn: Binding(
-                            get: { updater.automaticallyChecksForUpdates },
-                            set: { updater.setAutomaticChecks($0) }
-                        )).toggleStyle(SettingsSwitchStyle())
+            SettingsCard("Updates") {
+                Toggle("Automatically check for updates", isOn: Binding(
+                    get: { updater.automaticallyChecksForUpdates },
+                    set: { updater.setAutomaticChecks($0) }
+                )).toggleStyle(SettingsSwitchStyle())
+                    .disabled(!updater.isAvailable)
+                    .opacity(updater.isAvailable ? 1 : 0.5)
+                    .help(updater.isAvailable ? "Check for new versions automatically." : updater.status)
+                HStack(spacing: 16) {
+                    Button("Check for Updates…") { updater.checkForUpdates() }
+                        .buttonStyle(SettingsUpdateButtonStyle())
+                        .disabled(!updater.canRequestUpdateCheck)
+                    Spacer(minLength: 0)
+                    if updater.isAvailable, let date = updater.lastUpdateCheckDate {
+                        SettingsNote("Last checked \(date.formatted(date: .abbreviated, time: .shortened)).")
                     }
-                    HStack(spacing: 16) {
-                        Button("Check for Updates…") { updater.checkForUpdates() }
-                            .buttonStyle(SettingsUpdateButtonStyle())
-                            .disabled(!updater.canCheckForUpdates)
-                        Spacer(minLength: 0)
-                        if updater.isAvailable, let date = updater.lastUpdateCheckDate {
-                            SettingsNote("Last checked \(date.formatted(date: .abbreviated, time: .shortened)).")
-                        }
-                    }
-                    if !updater.isAvailable { SettingsNote(updater.status) }
                 }
             }
         }

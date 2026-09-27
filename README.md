@@ -45,7 +45,7 @@ Open `Package.swift` in Xcode to develop. Run `swift test --disable-sandbox` for
 - Widgets stay together as a group; ⌘-drag the group to position it, and reorder its contents in Settings. General settings can remember its position and select System/Celsius/Fahrenheit temperature units. CPU, GPU and Battery widgets support a Temperature reading. Disabling Sensors pauses SMC polling and makes CPU/GPU temperature widgets unavailable.
 - Launch at login uses macOS Login Items, is off by default, and may require approval in System Settings.
 - Local system history: Live, 12 h, 24 h, 7 d and 30 d.
-- Release builds with updates enabled include Check for Updates and optional automatic checks in Settings → About. Installation always requires your choice. Private development builds omit the update controls.
+- Settings → About includes Check for Updates and optional automatic checks. Installation always requires your choice. Before the release feed is published, the button explains that updates are not yet available and automatic checks remain disabled.
 - Developer → Reference Data provides labeled simulated readings for comparison with the reference. Launch with `--reference` or `--reference --tab cpu` for the same view. Demo process actions are disabled.
 
 ## Measurement details
@@ -74,7 +74,7 @@ For individual steps, use `scripts/build-app.sh`, `scripts/notarize.sh`, and `sc
 
 ## Preparing app updates
 
-Sparkle is pinned in `Package.resolved` and embedded by the build script. `config/release.json` contains the future public GitHub Releases feed URL and the public signing key. `updatesEnabled` stays `false` while the repository is private: the updater remains inactive and About and the app menu omit update controls. The private signing key stays in Keychain.
+Sparkle is pinned in `Package.resolved` and embedded by the build script. `config/release.json` contains the future public GitHub Releases feed URL and the public signing key. `updatesEnabled` stays `false` while the repository is private: the network updater remains inactive, but Check for Updates stays visible in About and the app menu and explains that the feed is not published yet. The private signing key stays in Keychain.
 
 For the first public release, make the repository public, set `updatesEnabled` to `true`, and build a new signed release. Publish its ZIP and signed `appcast.xml` as assets on the same GitHub release; the configured feed uses the latest release's `appcast.xml` asset. Automatic checking remains opt-in. Existing private builds need that first public build installed manually.
 
