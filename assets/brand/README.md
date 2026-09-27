@@ -1,5 +1,7 @@
 # zStats identity
 
+Original logo and icon artwork is covered by the [artwork terms](LICENSE), separately from the MIT-licensed code and documentation. Unmodified zStats builds and screenshots may include it; modified forks should use their own branding or obtain permission.
+
 ## Official app icon
 
 The source of truth is `zStats.icon/`, the original Apple Icon Composer document. Its logo, texture, layer positions, gradient, translucency and shadow settings are compiled directly with Xcode's `actool`.

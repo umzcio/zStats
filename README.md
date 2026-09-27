@@ -102,3 +102,7 @@ Local builds are ad-hoc signed by default. Public distribution requires your Dev
 - [Stats](https://github.com/exelban/stats), by [Serhiy Mytrovtsiy (exelban)](https://github.com/exelban), inspired the configurable monitors, hardware overview and settings. Its open-source AppleSMC implementation and sensor mappings also informed zStats' thermal monitoring.
 
 Thank you to both projects for the ideas and work behind them. The Stats-derived protocol definitions and sensor mappings retain their MIT attribution in [Third-party notices](THIRD_PARTY_NOTICES.md).
+
+## License
+
+The original zStats code and documentation are licensed under [MIT](LICENSE). Original logo and app-icon artwork in `assets/brand/` is covered separately by the [artwork terms](assets/brand/LICENSE); forks should use their own branding or obtain permission to reuse it. Third-party code and components retain their existing licenses and attribution in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
