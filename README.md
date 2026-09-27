@@ -45,7 +45,7 @@ Open `Package.swift` in Xcode to develop. Run `swift test --disable-sandbox` for
 - Widgets stay together as a group; ⌘-drag the group to position it, and reorder its contents in Settings. General settings can remember its position and select System/Celsius/Fahrenheit temperature units. CPU, GPU and Battery widgets support a Temperature reading. Disabling Sensors pauses SMC polling and makes CPU/GPU temperature widgets unavailable.
 - Launch at login uses macOS Login Items, is off by default, and may require approval in System Settings.
 - Local system history: Live, 12 h, 24 h, 7 d and 30 d.
-- Settings → About includes Check for Updates and optional automatic checks. Updates are enabled in builds configured with a release feed and public signing key; installation always requires your choice.
+- Release builds with updates enabled include Check for Updates and optional automatic checks in Settings → About. Installation always requires your choice. Private development builds omit the update controls.
 - Developer → Reference Data provides labeled simulated readings for comparison with the reference. Launch with `--reference` or `--reference --tab cpu` for the same view. Demo process actions are disabled.
 
 ## Measurement details
@@ -74,7 +74,9 @@ For individual steps, use `scripts/build-app.sh`, `scripts/notarize.sh`, and `sc
 
 ## Preparing app updates
 
-Sparkle is pinned in `Package.resolved`, embedded by the build script, and available from Settings → About and the zStats application menu. Automatic checking is off by default. Unconfigured local builds keep the updater inactive.
+Sparkle is pinned in `Package.resolved` and embedded by the build script. `config/release.json` contains the future public GitHub Releases feed URL and the public signing key. `updatesEnabled` stays `false` while the repository is private: the updater remains inactive and About and the app menu omit update controls. The private signing key stays in Keychain.
+
+For the first public release, make the repository public, set `updatesEnabled` to `true`, and build a new signed release. Publish its ZIP and signed `appcast.xml` as assets on the same GitHub release; the configured feed uses the latest release's `appcast.xml` asset. Automatic checking remains opt-in. Existing private builds need that first public build installed manually.
 
 Before the first public release:
 
@@ -84,7 +86,7 @@ Before the first public release:
    .build/artifacts/sparkle/Sparkle/bin/generate_keys --account dev.zach.zStats
    ```
 
-2. Set `feedURL` to the permanent HTTPS location of `appcast.xml` and `publicEDKey` to the printed **public** key in `config/release.json`. Keep the private key in Keychain, with a secure backup outside the repository. Both fields may remain empty for local development; partial or malformed configuration fails the build.
+2. Confirm `feedURL` is the permanent HTTPS location of `appcast.xml` and `publicEDKey` matches the printed **public** key in `config/release.json`. Keep the private key in Keychain, with a secure backup outside the repository. Set `updatesEnabled` to `true` for public releases. Partial or malformed configuration fails the build, and enabling updates requires both fields.
 3. Set `version` and a monotonically increasing integer `build` in that file. Environment overrides are available as `ZSTATS_VERSION`, `ZSTATS_BUILD_NUMBER`, `ZSTATS_UPDATE_FEED_URL`, and `ZSTATS_UPDATE_PUBLIC_KEY`.
 4. Configure the local signing/notarization credentials as described above, then build the signed, notarized app and DMG. The build signs Sparkle's nested helpers, framework, and host app in order:
 

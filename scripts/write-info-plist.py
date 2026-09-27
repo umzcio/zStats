@@ -15,6 +15,11 @@ def bundle_info(config, environ):
     build = environ.get("ZSTATS_BUILD_NUMBER", str(config["build"]))
     feed = environ.get("ZSTATS_UPDATE_FEED_URL", config.get("feedURL", ""))
     key = environ.get("ZSTATS_UPDATE_PUBLIC_KEY", config.get("publicEDKey", ""))
+    updates_enabled = config.get("updatesEnabled", False)
+    if type(updates_enabled) is not bool:
+        raise ValueError("updatesEnabled must be true or false.")
+    if updates_enabled and not (feed and key):
+        raise ValueError("Enable updates only after configuring the feed URL and public key.")
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Version must have three numeric components (for example 0.1.0).")
     if not re.fullmatch(r"[1-9]\d*", build):
@@ -44,7 +49,7 @@ def bundle_info(config, environ):
         "SUAllowsAutomaticUpdates": False, "SUEnableSystemProfiling": False,
         "SUVerifyUpdateBeforeExtraction": True, "SURequireSignedFeed": True,
     }
-    if feed:
+    if updates_enabled:
         info.update(SUFeedURL=feed, SUPublicEDKey=key)
     return info
 

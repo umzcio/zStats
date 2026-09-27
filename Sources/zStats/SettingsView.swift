@@ -137,37 +137,30 @@ struct SettingsView: View {
                     Image(nsImage: Bundle.main.url(forResource: "zStats", withExtension: "icns").flatMap { NSImage(contentsOf: $0) } ?? NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)).resizable().frame(width: 64, height: 64)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("zStats").font(.system(size: 20, weight: .semibold))
-                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0")").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))").font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer()
                 }.padding(.vertical, 8)
             }
-            SettingsCard("Updates") {
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(updater.isAvailable ? "Keep zStats up to date" : "Updates unavailable")
-                        SettingsNote(updater.status)
+            if updater.isConfigured {
+                SettingsCard("Updates") {
+                    if updater.isAvailable {
+                        Toggle("Automatically check for updates", isOn: Binding(
+                            get: { updater.automaticallyChecksForUpdates },
+                            set: { updater.setAutomaticChecks($0) }
+                        )).toggleStyle(SettingsSwitchStyle())
                     }
-                    Spacer(minLength: 0)
-                    Button("Check for Updates…") { updater.checkForUpdates() }
-                        .buttonStyle(SettingsUpdateButtonStyle())
-                        .disabled(!updater.canCheckForUpdates)
-                }
-                if updater.isAvailable {
-                    Divider().opacity(0.35)
-                    Toggle("Automatically check for updates", isOn: Binding(
-                        get: { updater.automaticallyChecksForUpdates },
-                        set: { updater.setAutomaticChecks($0) }
-                    )).toggleStyle(SettingsSwitchStyle())
-                    SettingsNote("You’ll choose when to download and install an update.")
-                    if let date = updater.lastUpdateCheckDate {
-                        SettingsNote("Last checked \(date.formatted(date: .abbreviated, time: .shortened)).")
+                    HStack(spacing: 16) {
+                        Button("Check for Updates…") { updater.checkForUpdates() }
+                            .buttonStyle(SettingsUpdateButtonStyle())
+                            .disabled(!updater.canCheckForUpdates)
+                        Spacer(minLength: 0)
+                        if updater.isAvailable, let date = updater.lastUpdateCheckDate {
+                            SettingsNote("Last checked \(date.formatted(date: .abbreviated, time: .shortened)).")
+                        }
                     }
+                    if !updater.isAvailable { SettingsNote(updater.status) }
                 }
-            }
-            SettingsCard("On this Mac") {
-                Text("Local system monitoring, from the menu bar to the details.")
-                SettingsNote("System activity and 30 days of history stay on this Mac.")
             }
         }
     }

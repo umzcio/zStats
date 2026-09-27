@@ -48,8 +48,10 @@ struct ZStatsApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") { updater.checkForUpdates() }
-                    .disabled(!updater.canCheckForUpdates)
+                if updater.isConfigured {
+                    Button("Check for Updates…") { updater.checkForUpdates() }
+                        .disabled(!updater.canCheckForUpdates)
+                }
             }
             CommandMenu("Monitor") {
                 Button("Show Menu Bar Panel") { menuBar.show() }.keyboardShortcut("m", modifiers: [.command, .shift])

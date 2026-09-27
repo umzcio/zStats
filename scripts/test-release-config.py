@@ -26,7 +26,7 @@ class ReleaseConfigTests(unittest.TestCase):
         self.assertEqual(info["LSMinimumSystemVersion"], "26.0")
 
     def test_release_overrides_and_plist_round_trip(self):
-        info = module.bundle_info(self.config, {
+        info = module.bundle_info({**self.config, "updatesEnabled": True}, {
             "ZSTATS_VERSION": "1.2.3", "ZSTATS_BUILD_NUMBER": "42",
             "ZSTATS_UPDATE_FEED_URL": "https://example.com/appcast.xml?a=1&b=2",
             "ZSTATS_UPDATE_PUBLIC_KEY": self.key,
@@ -36,6 +36,22 @@ class ReleaseConfigTests(unittest.TestCase):
         self.assertEqual(info["CFBundleShortVersionString"], "1.2.3")
         self.assertTrue(info["SURequireSignedFeed"])
         self.assertTrue(info["SUVerifyUpdateBeforeExtraction"])
+
+    def test_prepared_private_build_does_not_expose_update_feed(self):
+        prepared = {**self.config, "feedURL": "https://github.com/umzcio/zStats/releases/latest/download/appcast.xml", "publicEDKey": self.key, "updatesEnabled": False}
+        info = module.bundle_info(prepared, {})
+        self.assertNotIn("SUFeedURL", info)
+        self.assertNotIn("SUPublicEDKey", info)
+        public_info = module.bundle_info({**prepared, "updatesEnabled": True}, {})
+        self.assertEqual(public_info["SUFeedURL"], prepared["feedURL"])
+        self.assertEqual(public_info["SUPublicEDKey"], self.key)
+
+    def test_updates_require_explicit_boolean_and_complete_configuration(self):
+        for invalid in ["false", "true", 1, None]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                module.bundle_info({**self.config, "updatesEnabled": invalid}, {})
+        with self.assertRaises(ValueError):
+            module.bundle_info({**self.config, "updatesEnabled": True}, {})
 
     def test_partial_configuration_fails(self):
         for partial in [{"feedURL": "https://example.com/appcast.xml"}, {"publicEDKey": self.key}]:

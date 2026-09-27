@@ -4,6 +4,7 @@ import Sparkle
 import StatsCore
 
 @MainActor final class AppUpdater: ObservableObject {
+    @Published private(set) var isConfigured = false
     @Published private(set) var isAvailable = false
     @Published private(set) var canCheckForUpdates = false
     @Published private(set) var automaticallyChecksForUpdates = false
@@ -17,6 +18,7 @@ import StatsCore
             feedURL: bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String,
             publicKey: bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
         ) != nil else { return }
+        isConfigured = true
 
         let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
         self.controller = controller
