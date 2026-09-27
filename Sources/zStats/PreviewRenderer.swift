@@ -25,7 +25,7 @@ import AppKit
             try capture(MenuPanel().environmentObject(store).environment(\.colorScheme, .dark), size: MenuPanel.size(for: metric), to: directory.appendingPathComponent(name))
         }
         let settingsStore = MonitorStore(startSampling: false)
-        try capture(SettingsView().environmentObject(settingsStore), size: NSSize(width: 800, height: 650), to: directory.appendingPathComponent("settings.png"))
+        try capture(SettingsView().environmentObject(settingsStore).environmentObject(AppUpdater(enabled: false)), size: NSSize(width: 800, height: 650), to: directory.appendingPathComponent("settings.png"))
         print("Rendered reference previews to \(directory.path)")
     }
 

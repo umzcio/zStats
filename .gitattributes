@@ -10,3 +10,6 @@
 
 # Preserve the official Icon Composer document exactly as supplied.
 assets/brand/*.icon/** -text -whitespace
+
+# Preserve upstream license text verbatim.
+assets/licenses/Sparkle-LICENSE.txt -text -whitespace

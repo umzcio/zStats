@@ -4,6 +4,7 @@ import StatsCore
 
 struct SettingsView: View {
     @EnvironmentObject var store: MonitorStore
+    @EnvironmentObject var updater: AppUpdater
     @State private var section = Section.menuBar
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var loginError: String?
@@ -140,6 +141,29 @@ struct SettingsView: View {
                     }
                     Spacer()
                 }.padding(.vertical, 8)
+            }
+            SettingsCard("Updates") {
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(updater.isAvailable ? "Keep zStats up to date" : "Updates unavailable")
+                        SettingsNote(updater.status)
+                    }
+                    Spacer(minLength: 0)
+                    Button("Check for Updates…") { updater.checkForUpdates() }
+                        .buttonStyle(SettingsUpdateButtonStyle())
+                        .disabled(!updater.canCheckForUpdates)
+                }
+                if updater.isAvailable {
+                    Divider().opacity(0.35)
+                    Toggle("Automatically check for updates", isOn: Binding(
+                        get: { updater.automaticallyChecksForUpdates },
+                        set: { updater.setAutomaticChecks($0) }
+                    )).toggleStyle(SettingsSwitchStyle())
+                    SettingsNote("You’ll choose when to download and install an update.")
+                    if let date = updater.lastUpdateCheckDate {
+                        SettingsNote("Last checked \(date.formatted(date: .abbreviated, time: .shortened)).")
+                    }
+                }
             }
             SettingsCard("On this Mac") {
                 Text("Local system monitoring, from the menu bar to the details.")

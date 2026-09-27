@@ -1,5 +1,11 @@
 # Third-party notices
 
+## Sparkle
+
+[Sparkle](https://sparkle-project.org/) 2.10.0 provides signed app updates. Its complete license and bundled third-party attributions are preserved in [Sparkle-LICENSE.txt](assets/licenses/Sparkle-LICENSE.txt), also included in the app's Resources directory.
+
+## Stats
+
 SMC protocol definitions and thermal sensor mappings reference/adapt [Stats](https://github.com/exelban/stats), specifically `SMC/smc.swift` and `Modules/Sensors/values.swift`.
 
 MIT License

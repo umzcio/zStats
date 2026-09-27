@@ -1,6 +1,18 @@
 import SwiftUI
 import StatsCore
 
+struct SettingsUpdateButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.primary.opacity(isEnabled ? 0.9 : 0.35))
+            .padding(.horizontal, 12).frame(height: 30)
+            .background(Color.primary.opacity(configuration.isPressed ? 0.10 : 0.045), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+    }
+}
+
 struct SettingsNavigationButton: View {
     let title: String
     let symbol: String

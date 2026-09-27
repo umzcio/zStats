@@ -36,6 +36,7 @@ struct ZStatsApp: App {
     @NSApplicationDelegateAdaptor(ZStatsAppDelegate.self) private var appDelegate
     @StateObject private var store = MonitorStore()
     @StateObject private var menuBar = MenuBarController()
+    @StateObject private var updater = AppUpdater()
     var body: some Scene {
         Window("zStats", id: "dashboard") {
             DashboardScene(store: store, menuBar: menuBar)
@@ -46,6 +47,10 @@ struct ZStatsApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+            }
             CommandMenu("Monitor") {
                 Button("Show Menu Bar Panel") { menuBar.show() }.keyboardShortcut("m", modifiers: [.command, .shift])
                 Divider()
@@ -58,7 +63,7 @@ struct ZStatsApp: App {
                 Toggle("Reference Data", isOn: $store.referenceMode)
             }
         }
-        Settings { SettingsView().environmentObject(store) }
+        Settings { SettingsView().environmentObject(store).environmentObject(updater) }
     }
 }
 
