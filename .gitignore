@@ -6,6 +6,13 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 *.xcresult
+*.xcarchive/
+*.dSYM/
+
+# Python build/release script caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
 
 # macOS metadata and editor state
 .DS_Store
@@ -47,8 +54,11 @@ GEMINI.md
 !.env.sample
 *.p12
 *.pfx
+*.p8
 *.pem
 *.key
+*.keychain
+*.keychain-db
 *.mobileprovision
 *.provisionprofile
 .local-data/
