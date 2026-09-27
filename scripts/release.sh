@@ -2,6 +2,7 @@
 # Build a signed, notarized app and DMG locally. Never creates a GitHub release.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+command -v create-dmg > /dev/null || { printf 'Install create-dmg first: brew install create-dmg\n' >&2; exit 1; }
 CONFIG="$PWD/scripts/.notary-config.local"
 [[ -f "$CONFIG" ]] || { printf 'Missing scripts/.notary-config.local; see scripts/notary-config.example.\n' >&2; exit 1; }
 source "$CONFIG"
