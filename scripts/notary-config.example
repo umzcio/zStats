@@ -1,0 +1,6 @@
+# Copy to scripts/.notary-config.local (gitignored) and chmod 600 that file.
+# Keep the actual private .p8 key outside the repository.
+ZSTATS_SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)'
+NOTARY_KEY='~/.private_keys/AuthKey_YOURKEYID.p8'
+NOTARY_KEY_ID='YOURKEYID'
+NOTARY_ISSUER='YOUR-ISSUER-UUID'

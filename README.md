@@ -58,6 +58,20 @@ Thermal and fan readings use a read-only AppleSMC connection on the background s
 
 History begins when zStats runs, records one system sample per minute to `~/Library/Application Support/zStats/history.json`, and retains 30 days. It is saved every minute; the last minute can be lost on exit. History does not collect while the app is closed. Reference readings never enter the history file. There is no analytics or license server. Configured release builds contact the update host when you check for updates or enable automatic checks; system profiling is disabled and monitoring data is not sent.
 
+## Signed and notarized DMG
+
+The release script builds a Developer ID-signed app and a drag-to-Applications DMG, submits both to Apple for notarization, staples both tickets, and checks Gatekeeper acceptance. It does not publish a GitHub release.
+
+Copy `scripts/notary-config.example` to `scripts/.notary-config.local`, restrict that file with `chmod 600`, and fill in your Developer ID Application identity and App Store Connect API key references. Keep the private `.p8` key outside the repository. The local config, signing keys, and all generated artifacts are ignored by Git.
+
+```sh
+bash scripts/release.sh
+```
+
+Version and build number come from `config/release.json`. The final installer is `dist/zStats-VERSION-BUILD.dmg`; Apple submission results are saved under `dist/notarization/`. Existing DMGs are not overwritten. The app's ticket is stapled before the DMG is built so the app inside also carries its notarization ticket.
+
+For individual steps, use `scripts/build-app.sh`, `scripts/notarize.sh`, and `scripts/make-dmg.sh`. The build and DMG scripts use `ZSTATS_SIGNING_IDENTITY` from the environment; `release.sh` loads and exports it from the local config. Notarization reads the local config directly. A signed DMG can be prepared before Sparkle hosting is configured.
+
 ## Preparing app updates
 
 Sparkle is pinned in `Package.resolved`, embedded by the build script, and available from Settings → About and the zStats application menu. Automatic checking is off by default. Unconfigured local builds keep the updater inactive.
@@ -72,21 +86,13 @@ Before the first public release:
 
 2. Set `feedURL` to the permanent HTTPS location of `appcast.xml` and `publicEDKey` to the printed **public** key in `config/release.json`. Keep the private key in Keychain, with a secure backup outside the repository. Both fields may remain empty for local development; partial or malformed configuration fails the build.
 3. Set `version` and a monotonically increasing integer `build` in that file. Environment overrides are available as `ZSTATS_VERSION`, `ZSTATS_BUILD_NUMBER`, `ZSTATS_UPDATE_FEED_URL`, and `ZSTATS_UPDATE_PUBLIC_KEY`.
-4. Build with your Developer ID Application identity. The script signs Sparkle's nested helpers, framework, and host app in order:
+4. Configure the local signing/notarization credentials as described above, then build the signed, notarized app and DMG. The build signs Sparkle's nested helpers, framework, and host app in order:
 
    ```sh
-   ZSTATS_SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' bash scripts/build-app.sh
+   bash scripts/release.sh
    ```
 
-5. Notarize and staple the app using a previously configured `notarytool` Keychain profile:
-
-   ```sh
-   ditto -c -k --sequesterRsrc --keepParent dist/zStats.app dist/zStats-notarization.zip
-   xcrun notarytool submit dist/zStats-notarization.zip --keychain-profile zStats --wait
-   xcrun stapler staple dist/zStats.app
-   ```
-
-6. Prepare the signed archive and appcast, supplying the HTTPS directory where the archive will be hosted:
+5. Prepare the signed ZIP archive and appcast, supplying the HTTPS directory where the archive will be hosted:
 
    ```sh
    bash scripts/prepare-update.sh https://YOUR-UPDATE-HOST/downloads/
@@ -94,9 +100,9 @@ Before the first public release:
 
    This checks the embedded public key against Keychain, verifies the signed/notarized app, and creates `dist/updates/zStats-VERSION-BUILD.zip` and a signed `dist/updates/appcast.xml`. It never uploads anything. Use `ZSTATS_SPARKLE_KEY_ACCOUNT` if your key has a different Keychain account. Existing archives are not overwritten. Keep this staging directory between releases to retain older feed entries.
 
-Upload the archive to its download URL and the appcast to the exact `feedURL` embedded in the app. GitHub Releases can host the ZIP; the appcast needs a stable HTTPS URL. Do not edit a generated signed appcast without regenerating its signature. Before publishing the first update, test discovery, download, installation, and relaunch from an older signed build. Increment the build number for every update, even when the display version stays the same.
+Upload the archive to its download URL and the appcast to the exact `feedURL` embedded in the app. Public GitHub Releases can host the ZIP; the appcast needs a stable HTTPS URL. A private repository's release assets and raw files require authentication, so they cannot serve as an anonymous update feed; use separate public hosting or an authenticated update service. Do not embed GitHub access tokens in the app. Do not edit a generated signed appcast without regenerating its signature. Before publishing the first update, test discovery, download, installation, and relaunch from an older signed build. Increment the build number for every update, even when the display version stays the same.
 
-The feed, update archive, and release notes are signed following [Sparkle's setup instructions](https://sparkle-project.org/documentation/). No production feed, signing identity, Keychain key, or notarization profile is supplied by the repository.
+The feed, update archive, and release notes are signed following [Sparkle's setup instructions](https://sparkle-project.org/documentation/). No production feed, signing identity, Sparkle private key, or Apple API credentials are supplied by the repository.
 
 ## Current limits
 

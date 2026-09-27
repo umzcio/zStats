@@ -50,6 +50,7 @@ GEMINI.md
 # Local credentials, signing material, runtime data, and logs
 .env
 .env.*
+scripts/.notary-config.local
 !.env.example
 !.env.sample
 *.p12
