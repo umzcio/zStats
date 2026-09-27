@@ -1,0 +1,12 @@
+* text=auto
+*.swift text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.png binary
+*.jpg binary
+*.icns binary
+
+# Preserve the official Icon Composer document exactly as supplied.
+assets/brand/*.icon/** -text -whitespace

@@ -1,0 +1,44 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.35686,0.61176,0.96471,1.00000",
+      "extended-gray:0.00000,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "zstats-white.svg",
+          "name" : "zstats-white",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              -6
+            ]
+          }
+        },
+        {
+          "image-name" : "umzcio_5B9CF6_with_lines_going_in_different_directions_with_a_7b84a7e8-277e-4325-bc56-a98171dd8f6c_1.png",
+          "name" : "umzcio_5B9CF6_with_lines_going_in_different_directions_with_a_7b84a7e8-277e-4325-bc56-a98171dd8f6c_1",
+          "opacity" : 1
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

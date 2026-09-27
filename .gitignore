@@ -1,0 +1,58 @@
+# Swift / Xcode build output and per-user state
+.build/
+dist/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+
+# macOS metadata and editor state
+.DS_Store
+._*
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local planning, verification notes, and screenshots
+# Keep working Markdown local; allow the public project documentation explicitly.
+*.md
+!/README.md
+!/THIRD_PARTY_NOTICES.md
+!/assets/brand/README.md
+!/LICENSE.md
+/docs/
+/plans/
+/notes/
+/PLAN.md
+/PLANS.md
+/TODO.md
+/TASKS.md
+/SCRATCH.md
+
+# Local agent configuration and session notes
+.agents/
+.codex/
+.claude/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Local credentials, signing material, runtime data, and logs
+.env
+.env.*
+!.env.example
+!.env.sample
+*.p12
+*.pfx
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+.local-data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
