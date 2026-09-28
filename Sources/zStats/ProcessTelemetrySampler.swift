@@ -9,6 +9,7 @@ final class ProcessTelemetrySampler {
     private var gpu = GPUTimeTracker()
     private var networkWarmed = false
     private var gpuWarmed = false
+    private let processRunner = BoundedProcessRunner(maxOutputBytes: 4 * 1024 * 1024)
 
     func sample(_ processes: inout [ProcessReading], networkEnabled: Bool = true, gpuEnabled: Bool = true) -> (network: Bool, gpu: Bool) {
         let identities = Dictionary(processes.map { ($0.pid, $0.identity) }, uniquingKeysWith: { a, _ in a })
@@ -53,17 +54,12 @@ final class ProcessTelemetrySampler {
     }
 
     private func networkCounters() -> [Int32: NetworkCounters]? {
-        let command = Process()
-        command.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
-        command.arguments = ["-P", "-L", "1", "-n", "-x", "-t", "external", "-J", "bytes_in,bytes_out"]
-        let pipe = Pipe()
-        command.standardOutput = pipe; command.standardError = FileHandle.nullDevice
-        do { try command.run() } catch { return nil }
-        let timeout = DispatchWorkItem { if command.isRunning { command.terminate() } }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2, execute: timeout)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        command.waitUntilExit(); timeout.cancel()
-        guard command.terminationStatus == 0 else { return nil }
+        let result = processRunner.run(
+            executable: "/usr/bin/nettop",
+            arguments: ["-P", "-L", "1", "-n", "-x", "-t", "external", "-J", "bytes_in,bytes_out"],
+            timeout: 2
+        )
+        guard case .success(let data) = result else { return nil }
         return NettopParser.parse(String(decoding: data, as: UTF8.self))
     }
 

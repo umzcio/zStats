@@ -12,6 +12,7 @@ final class SystemSampler: @unchecked Sendable {
     private let telemetry = ProcessTelemetrySampler()
     private let sensors = SensorSampler()
     private let appNames = AppNameResolver()
+    private let processRunner = BoundedProcessRunner(maxOutputBytes: 4 * 1024 * 1024)
     private var lastProjectDiscovery = -Double.infinity
     private var lastHistorySave = -Double.infinity
     private var projects: [ProjectReading] = []
@@ -130,14 +131,12 @@ final class SystemSampler: @unchecked Sendable {
     }
 
     private func discoverProjects(processes: [ProcessReading]) -> [ProjectReading] {
-        let command = Process(); command.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        command.arguments = ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcfn"]
-        let pipe = Pipe(); command.standardOutput = pipe; command.standardError = FileHandle.nullDevice
-        do { try command.run() } catch { return [] }
-        let timeout = DispatchWorkItem { if command.isRunning { command.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 4, execute: timeout)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        command.waitUntilExit(); timeout.cancel()
+        let result = processRunner.run(
+            executable: "/usr/sbin/lsof",
+            arguments: ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcfn"],
+            timeout: 4
+        )
+        guard case .success(let data) = result else { return [] }
         let discovered = ProjectParser.parse(String(data: data, encoding: .utf8) ?? "")
         let byPID = Dictionary(processes.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a })
         var groups: [String: ProjectReading] = [:]
