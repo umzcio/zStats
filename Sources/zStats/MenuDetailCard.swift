@@ -55,7 +55,7 @@ struct MenuDetailCard: View {
         case .memory: return "of " + Format.memory(s.memoryTotal, decimals: 0)
         case .disk: return Format.memory(s.diskTotal - s.diskFree) + " used of " + Format.memory(s.diskTotal)
         case .network: return "↑ " + Format.rate(s.upload)
-        case .battery: return s.charging ? "Charging" : s.batteryMinutes.map { Format.duration($0) + " left" } ?? "On battery"
+        case .battery: return s.charging ? "Connected to power" : s.batteryMinutes.map { Format.duration($0) + " left" } ?? "On battery"
         default: return ""
         }
     }

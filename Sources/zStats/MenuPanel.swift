@@ -162,7 +162,7 @@ private struct MenuMetricCard: View {
         case .memory: return "of " + Format.memory(s.memoryTotal, decimals: 0)
         case .network: return "↑ " + Format.rate(s.upload)
         case .disk: return "free"
-        case .battery: return s.charging ? "Charging" : s.batteryMinutes == nil ? "" : Format.duration(s.batteryMinutes) + " left"
+        case .battery: return s.charging ? "Connected to power" : s.batteryMinutes == nil ? "" : Format.duration(s.batteryMinutes) + " left"
         default: return ""
         }
     }
