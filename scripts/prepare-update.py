@@ -3,6 +3,10 @@
 
 import argparse
 import base64
+from contextlib import contextmanager
+import fcntl
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -25,6 +29,10 @@ ARCHIVE_NAME = re.compile(r"zStats-(\d+\.\d+\.\d+)-([1-9]\d*)\.zip\Z")
 
 class PreparationError(ValueError):
     pass
+
+
+TRANSACTION_FILE = "transaction.json"
+TRANSACTION_SCHEMA = 1
 
 
 def _signed_xml(path):
@@ -111,6 +119,48 @@ def _default_run(command, cwd):
     subprocess.run(command, cwd=cwd, check=True)
 
 
+def _sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@contextmanager
+def _exclusive_lock(output_directory):
+    lock_path = output_directory / ".prepare-update.lock"
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise PreparationError("Another update preparation is already running") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def _write_transaction(workspace, metadata):
+    temporary = workspace / f".{TRANSACTION_FILE}.tmp"
+    with temporary.open("w", encoding="utf-8") as stream:
+        stream.write(json.dumps(metadata, sort_keys=True) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, workspace / TRANSACTION_FILE)
+    directory_descriptor = os.open(workspace, os.O_RDONLY)
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+
+
+def _remove_workspace(workspace, output_directory, prefix):
+    if workspace.parent != output_directory or not workspace.name.startswith(prefix):
+        raise PreparationError(f"Refusing to remove unexpected transaction workspace: {workspace}")
+    shutil.rmtree(workspace)
+
+
 def _verify_archives(items, directory, verifier, account, runner):
     for version, item in items.items():
         archive_name = Path(unquote(urlsplit(item["url"]).path)).name
@@ -128,7 +178,129 @@ def _verify_archives(items, directory, verifier, account, runner):
         )
 
 
-def prepare_update(generator, verifier, account, download_url_prefix, archive, appcast, run_command=None):
+def _validate_generated(staged_appcast, archive, download_url_prefix, previous_items):
+    archive_match = ARCHIVE_NAME.fullmatch(archive.name)
+    expected_short_version, expected_build = archive_match.groups()
+    _, generated_root = _signed_xml(staged_appcast)
+    generated_items = _items(generated_root, staged_appcast)
+    for version, prior in previous_items.items():
+        current = generated_items.get(version)
+        if current is None:
+            raise PreparationError(f"Sparkle generator removed prior version {version}")
+        if current["item"] != prior["item"]:
+            raise PreparationError(f"Sparkle generator changed prior version {version}")
+
+    new_versions = set(generated_items) - set(previous_items)
+    if new_versions != {expected_build}:
+        raise PreparationError("Generated appcast must add exactly one update version")
+    new_item = generated_items[expected_build]
+    expected_url = download_url_prefix + quote(archive.name)
+    if new_item["url"] != expected_url:
+        raise PreparationError(f"New update URL is {new_item['url']!r}; expected {expected_url!r}")
+    if new_item["short_version"] != expected_short_version:
+        raise PreparationError("New update display version does not match its archive name")
+    if new_item["length"] != archive.stat().st_size:
+        raise PreparationError("New update length does not match its archive")
+    return new_item
+
+
+def _finish_transaction(
+    workspace, metadata, archive, appcast, verifier, account, download_url_prefix,
+    previous_items, runner, replace, after_archive_promoted=None,
+):
+    staged_archive = workspace / archive.name
+    staged_appcast = workspace / "appcast.xml"
+    archive_is_final = archive.is_file() and _sha256(archive) == metadata["archive_sha256"]
+    feed_is_final = appcast.is_file() and _sha256(appcast) == metadata["feed_sha256"]
+    if archive_is_final and feed_is_final:
+        _remove_workspace(workspace, archive.parent, metadata["workspace_prefix"])
+        return
+    if archive.is_file() and not archive_is_final:
+        raise PreparationError(f"Final archive conflicts with interrupted transaction: {archive}")
+    if appcast.is_file() and feed_is_final and not archive_is_final:
+        raise PreparationError("Prepared feed exists without its matching archive")
+
+    candidate_archive = archive if archive_is_final else staged_archive
+    if not candidate_archive.is_file() or _sha256(candidate_archive) != metadata["archive_sha256"]:
+        raise PreparationError("Interrupted transaction archive is missing or changed")
+    if not staged_appcast.is_file() or _sha256(staged_appcast) != metadata["feed_sha256"]:
+        raise PreparationError("Interrupted transaction feed is missing or changed")
+
+    new_item = _validate_generated(staged_appcast, candidate_archive, download_url_prefix, previous_items)
+    runner(
+        [str(verifier), "--verify", "--account", account, str(candidate_archive), new_item["signature"]],
+        candidate_archive.parent,
+    )
+    runner([str(verifier), "--verify", "--account", account, str(staged_appcast)], workspace)
+
+    promoted_here = False
+    try:
+        if not archive_is_final:
+            replace(staged_archive, archive)
+            promoted_here = True
+            metadata["state"] = "archive-promoted"
+            _write_transaction(workspace, metadata)
+        if after_archive_promoted is not None:
+            after_archive_promoted()
+        replace(staged_appcast, appcast)
+    except Exception:
+        if appcast.is_file() and _sha256(appcast) == metadata["feed_sha256"]:
+            _remove_workspace(workspace, archive.parent, metadata["workspace_prefix"])
+            return
+        if (promoted_here or archive_is_final) and archive.is_file() and _sha256(archive) == metadata["archive_sha256"]:
+            try:
+                os.replace(archive, staged_archive)
+            except OSError:
+                pass
+        raise
+
+    _remove_workspace(workspace, archive.parent, metadata["workspace_prefix"])
+
+
+def _recover_transaction(
+    archive, appcast, verifier, account, download_url_prefix, previous_items,
+    runner, replace, after_archive_promoted=None,
+):
+    prefix = f".prepare-update-{archive.name}-"
+    workspaces = [path for path in archive.parent.glob(f"{prefix}*") if path.is_dir()]
+    if len(workspaces) > 1:
+        raise PreparationError(f"Multiple interrupted transactions exist for {archive.name}")
+    if not workspaces:
+        return False
+    workspace = workspaces[0]
+    transaction_path = workspace / TRANSACTION_FILE
+    try:
+        metadata = json.loads(transaction_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise PreparationError(f"Interrupted transaction metadata is unreadable: {workspace}") from error
+    expected = {
+        "schema": TRANSACTION_SCHEMA,
+        "archive_name": archive.name,
+        "appcast_name": appcast.name,
+        "download_url_prefix": download_url_prefix,
+        "workspace_prefix": prefix,
+    }
+    if any(metadata.get(key) != value for key, value in expected.items()):
+        raise PreparationError(f"Interrupted transaction metadata does not match this release: {workspace}")
+    if metadata.get("state") == "building":
+        if archive.exists():
+            raise PreparationError("Incomplete transaction unexpectedly has a final archive")
+        _remove_workspace(workspace, archive.parent, prefix)
+        return False
+    for field in ("archive_sha256", "feed_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", metadata.get(field, "")):
+            raise PreparationError(f"Interrupted transaction metadata is incomplete: {workspace}")
+    _finish_transaction(
+        workspace, metadata, archive, appcast, verifier, account, download_url_prefix,
+        previous_items, runner, replace, after_archive_promoted,
+    )
+    return True
+
+
+def prepare_update(
+    generator, verifier, archiver, app, account, download_url_prefix, archive, appcast,
+    run_command=None, replace=os.replace, after_archive_promoted=None,
+):
     prefix = urlsplit(download_url_prefix)
     if (
         prefix.scheme != "https"
@@ -143,90 +315,106 @@ def prepare_update(generator, verifier, account, download_url_prefix, archive, a
 
     generator = Path(generator)
     verifier = Path(verifier)
+    archiver = Path(archiver)
+    app = Path(app)
     archive = Path(archive)
     appcast = Path(appcast)
     if not generator.is_file():
         raise PreparationError(f"Sparkle generator does not exist: {generator}")
     if not verifier.is_file():
         raise PreparationError(f"Sparkle verifier does not exist: {verifier}")
-    if not archive.is_file() or archive.suffix != ".zip":
-        raise PreparationError(f"Update archive does not exist or is not a ZIP: {archive}")
+    if not archiver.is_file():
+        raise PreparationError(f"Archive tool does not exist: {archiver}")
+    if not app.exists():
+        raise PreparationError(f"Application does not exist: {app}")
+    if archive.suffix != ".zip":
+        raise PreparationError(f"Update archive is not a ZIP: {archive}")
     archive_match = ARCHIVE_NAME.fullmatch(archive.name)
     if archive_match is None:
         raise PreparationError(f"Update archive has an unexpected name: {archive.name}")
-    expected_short_version, expected_build = archive_match.groups()
     if archive.parent != appcast.parent:
         raise PreparationError("Update archive and appcast must use the same output directory")
 
     runner = run_command or _default_run
-    previous_data = None
-    previous_items = {}
-    if appcast.exists():
-        previous_data, previous_root = _signed_xml(appcast)
-        previous_items = _items(previous_root, appcast)
-        runner([str(verifier), "--verify", "--account", account, str(appcast)], appcast.parent)
-        _verify_archives(previous_items, appcast.parent, verifier, account, runner)
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with _exclusive_lock(archive.parent):
+        previous_data = None
+        previous_items = {}
+        if appcast.exists():
+            previous_data, previous_root = _signed_xml(appcast)
+            previous_items = _items(previous_root, appcast)
+            runner([str(verifier), "--verify", "--account", account, str(appcast)], appcast.parent)
+            _verify_archives(previous_items, appcast.parent, verifier, account, runner)
 
-    with tempfile.TemporaryDirectory(prefix=".prepare-update-", dir=appcast.parent) as staging_name:
-        staging = Path(staging_name)
-        staged_archive = staging / archive.name
-        staged_appcast = staging / "appcast.xml"
-        shutil.copy2(archive, staged_archive)
-        if previous_data is not None:
-            staged_appcast.write_bytes(previous_data)
+        if _recover_transaction(
+            archive, appcast, verifier, account, download_url_prefix, previous_items,
+            runner, replace, after_archive_promoted,
+        ):
+            return
+        if archive.exists():
+            raise PreparationError(f"Archive already exists; use a new build number: {archive}")
 
-        command = [
-            str(generator),
-            "--account", account,
-            "--download-url-prefix", download_url_prefix,
-            "--maximum-versions", "0",
-            "--maximum-deltas", "0",
-            "--embed-release-notes",
-            "-o", str(staged_appcast),
-            str(staging),
-        ]
-        runner(command, staging)
-        if not staged_appcast.is_file():
-            raise PreparationError("Sparkle generator did not create appcast.xml")
-
-        _, generated_root = _signed_xml(staged_appcast)
-        generated_items = _items(generated_root, staged_appcast)
-        for version, prior in previous_items.items():
-            current = generated_items.get(version)
-            if current is None:
-                raise PreparationError(f"Sparkle generator removed prior version {version}")
-            if current["item"] != prior["item"]:
-                raise PreparationError(f"Sparkle generator changed prior version {version}")
-
-        new_versions = set(generated_items) - set(previous_items)
-        if new_versions != {expected_build}:
-            raise PreparationError("Generated appcast must add exactly one update version")
-        new_item = generated_items[expected_build]
-        expected_url = download_url_prefix + quote(archive.name)
-        if new_item["url"] != expected_url:
-            raise PreparationError(
-                f"New update URL is {new_item['url']!r}; expected {expected_url!r}"
+        prefix = f".prepare-update-{archive.name}-"
+        workspace = Path(tempfile.mkdtemp(prefix=prefix, dir=archive.parent))
+        metadata = {
+            "schema": TRANSACTION_SCHEMA,
+            "state": "building",
+            "archive_name": archive.name,
+            "appcast_name": appcast.name,
+            "download_url_prefix": download_url_prefix,
+            "workspace_prefix": prefix,
+        }
+        _write_transaction(workspace, metadata)
+        try:
+            staged_archive = workspace / archive.name
+            staged_appcast = workspace / "appcast.xml"
+            runner(
+                [str(archiver), "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(staged_archive)],
+                workspace,
             )
-        if new_item["short_version"] != expected_short_version:
-            raise PreparationError("New update display version does not match its archive name")
-        if new_item["length"] != archive.stat().st_size:
-            raise PreparationError("New update length does not match its archive")
-
-        runner(
-            [
-                str(verifier), "--verify", "--account", account,
-                str(archive), new_item["signature"],
-            ],
-            archive.parent,
-        )
-        runner([str(verifier), "--verify", "--account", account, str(staged_appcast)], staging)
-        os.replace(staged_appcast, appcast)
+            if not staged_archive.is_file():
+                raise PreparationError("Archive tool did not create the update ZIP")
+            if previous_data is not None:
+                staged_appcast.write_bytes(previous_data)
+            runner(
+                [
+                    str(generator), "--account", account,
+                    "--download-url-prefix", download_url_prefix,
+                    "--maximum-versions", "0", "--maximum-deltas", "0",
+                    "--embed-release-notes", "-o", str(staged_appcast), str(workspace),
+                ],
+                workspace,
+            )
+            if not staged_appcast.is_file():
+                raise PreparationError("Sparkle generator did not create appcast.xml")
+            new_item = _validate_generated(staged_appcast, staged_archive, download_url_prefix, previous_items)
+            runner(
+                [str(verifier), "--verify", "--account", account, str(staged_archive), new_item["signature"]],
+                workspace,
+            )
+            runner([str(verifier), "--verify", "--account", account, str(staged_appcast)], workspace)
+            metadata.update({
+                "state": "prepared",
+                "archive_sha256": _sha256(staged_archive),
+                "feed_sha256": _sha256(staged_appcast),
+            })
+            _write_transaction(workspace, metadata)
+            _finish_transaction(
+                workspace, metadata, archive, appcast, verifier, account, download_url_prefix,
+                previous_items, runner, replace, after_archive_promoted,
+            )
+        except Exception:
+            if workspace.exists() and not archive.exists():
+                _remove_workspace(workspace, archive.parent, prefix)
+            raise
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--generator", required=True)
     parser.add_argument("--verifier", required=True)
+    parser.add_argument("--archiver", required=True)
+    parser.add_argument("--app", required=True)
     parser.add_argument("--account", required=True)
     parser.add_argument("--download-url-prefix", required=True)
     parser.add_argument("--archive", required=True)
@@ -236,6 +424,8 @@ def main():
         prepare_update(
             args.generator,
             args.verifier,
+            args.archiver,
+            args.app,
             args.account,
             args.download_url_prefix,
             args.archive,

@@ -3,6 +3,7 @@ import base64
 import copy
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -48,17 +49,30 @@ def add_item(root, version, short_version, url, length, signature=None):
     return item
 
 
-class FakeGenerator:
-    def __init__(self):
+class SimulatedInterruption(BaseException):
+    pass
+
+
+class FakeTools:
+    def __init__(self, archiver):
+        self.archiver = str(archiver)
         self.generated = []
         self.commands = []
         self.verified = []
         self.change_prior_url = False
+        self.failure = None
 
     def __call__(self, command, cwd):
         self.commands.append(command)
+        if command[0] == self.archiver:
+            if self.failure == "archive":
+                raise OSError("injected archive failure")
+            Path(command[-1]).write_bytes((Path(command[-2]) / "payload").read_bytes())
+            return
         if "--verify" in command:
             verified_path = Path(command[-1] if command[-1].endswith(".xml") else command[-2])
+            if self.failure == "signature" and verified_path.name == "zStats-7.1.0-71.zip":
+                raise OSError("injected signature failure")
             if verified_path.suffix == ".xml":
                 module._signed_xml(verified_path)
             else:
@@ -67,6 +81,8 @@ class FakeGenerator:
                     raise AssertionError("archive signature does not match")
             self.verified.append(verified_path.read_bytes())
             return
+        if self.failure == "generator":
+            raise OSError("injected generator failure")
         cwd = Path(cwd)
         archives = list(cwd.glob("*.zip"))
         if len(archives) != 1:
@@ -100,43 +116,54 @@ class PrepareUpdateTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.directory = Path(self.temporary.name)
+        self.output = self.directory / "updates"
+        self.output.mkdir()
         self.generator = self.directory / "generate_appcast"
         self.generator.touch()
         self.verifier = self.directory / "sign_update"
         self.verifier.touch()
-        self.appcast = self.directory / "appcast.xml"
-        self.fake = FakeGenerator()
+        self.archiver = self.directory / "ditto"
+        self.archiver.touch()
+        self.app = self.directory / "zStats.app"
+        self.app.mkdir()
+        self.appcast = self.output / "appcast.xml"
+        self.fake = FakeTools(self.archiver)
 
     def tearDown(self):
         self.temporary.cleanup()
 
-    def prepare(self, archive, prefix):
+    def prepare(self, name, contents, prefix, **kwargs):
+        (self.app / "payload").write_bytes(contents)
+        archive = self.output / name
         module.prepare_update(
             self.generator,
             self.verifier,
+            self.archiver,
+            self.app,
             "test-account",
             prefix,
             archive,
             self.appcast,
             run_command=self.fake,
+            **kwargs,
         )
-
-    def archive(self, name, contents):
-        path = self.directory / name
-        path.write_bytes(contents)
-        return path
+        return archive
 
     def items(self):
         _, root = module._signed_xml(self.appcast)
         return module._items(root, self.appcast)
 
     def test_two_releases_keep_first_tag_url_and_metadata(self):
-        first = self.archive("zStats-1.0.0-10.zip", b"release-a")
-        self.prepare(first, "https://github.com/owner/zStats/releases/download/v1.0.0/")
+        self.prepare(
+            "zStats-1.0.0-10.zip", b"release-a",
+            "https://github.com/owner/zStats/releases/download/v1.0.0/",
+        )
         first_item = self.items()["10"]
 
-        second = self.archive("zStats-1.1.0-11.zip", b"release-b")
-        self.prepare(second, "https://github.com/owner/zStats/releases/download/v1.1.0/")
+        self.prepare(
+            "zStats-1.1.0-11.zip", b"release-b",
+            "https://github.com/owner/zStats/releases/download/v1.1.0/",
+        )
         items = self.items()
 
         self.assertEqual(items["10"], first_item)
@@ -157,8 +184,8 @@ class PrepareUpdateTests(unittest.TestCase):
 
     def test_stable_download_prefix_is_supported(self):
         prefix = "https://updates.example.com/downloads/"
-        self.prepare(self.archive("zStats-2.0.0-20.zip", b"twenty"), prefix)
-        self.prepare(self.archive("zStats-2.1.0-21.zip", b"twenty-one"), prefix)
+        self.prepare("zStats-2.0.0-20.zip", b"twenty", prefix)
+        self.prepare("zStats-2.1.0-21.zip", b"twenty-one", prefix)
         self.assertEqual(
             {item["url"] for item in self.items().values()},
             {
@@ -168,8 +195,7 @@ class PrepareUpdateTests(unittest.TestCase):
         )
 
     def test_generated_signed_bytes_are_published_without_post_edit(self):
-        archive = self.archive("zStats-3.0.0-30.zip", b"thirty")
-        self.prepare(archive, "https://example.com/v3.0.0/")
+        self.prepare("zStats-3.0.0-30.zip", b"thirty", "https://example.com/v3.0.0/")
         self.assertEqual(self.appcast.read_bytes(), self.fake.generated[-1])
         self.assertEqual(self.appcast.read_bytes(), self.fake.verified[-1])
         module._signed_xml(self.appcast)
@@ -177,9 +203,8 @@ class PrepareUpdateTests(unittest.TestCase):
     def test_malformed_prior_feed_fails_without_replacing_it(self):
         original = signed_bytes(b"<rss><channel>")
         self.appcast.write_bytes(original)
-        archive = self.archive("zStats-4.0.0-40.zip", b"forty")
         with self.assertRaises(module.PreparationError):
-            self.prepare(archive, "https://example.com/v4.0.0/")
+            self.prepare("zStats-4.0.0-40.zip", b"forty", "https://example.com/v4.0.0/")
         self.assertEqual(self.appcast.read_bytes(), original)
         self.assertEqual(self.fake.commands, [])
 
@@ -189,25 +214,91 @@ class PrepareUpdateTests(unittest.TestCase):
         del item.find("enclosure").attrib[module.ED_SIGNATURE]
         original = signed_bytes(ET.tostring(root, encoding="utf-8"))
         self.appcast.write_bytes(original)
-        archive = self.archive("zStats-5.1.0-51.zip", b"fifty-one")
         with self.assertRaises(module.PreparationError):
-            self.prepare(archive, "https://example.com/v5.1.0/")
+            self.prepare("zStats-5.1.0-51.zip", b"fifty-one", "https://example.com/v5.1.0/")
         self.assertEqual(self.appcast.read_bytes(), original)
         self.assertEqual(self.fake.commands, [])
 
     def test_generator_cannot_change_a_prior_item(self):
-        self.prepare(
-            self.archive("zStats-6.0.0-60.zip", b"sixty"),
-            "https://example.com/v6.0.0/",
-        )
+        self.prepare("zStats-6.0.0-60.zip", b"sixty", "https://example.com/v6.0.0/")
         original = self.appcast.read_bytes()
         self.fake.change_prior_url = True
         with self.assertRaises(module.PreparationError):
             self.prepare(
-                self.archive("zStats-6.1.0-61.zip", b"sixty-one"),
+                "zStats-6.1.0-61.zip", b"sixty-one",
                 "https://example.com/v6.1.0/",
             )
         self.assertEqual(self.appcast.read_bytes(), original)
+
+    def test_prepromotion_failures_leave_old_artifacts_and_allow_retry(self):
+        first = self.prepare("zStats-7.0.0-70.zip", b"seventy", "https://example.com/v7.0.0/")
+        original_feed = self.appcast.read_bytes()
+        original_archive = first.read_bytes()
+        for failure in ("archive", "generator", "signature"):
+            with self.subTest(failure=failure):
+                self.fake.failure = failure
+                target = self.output / "zStats-7.1.0-71.zip"
+                with self.assertRaises(OSError):
+                    self.prepare(target.name, b"seventy-one", "https://example.com/v7.1.0/")
+                self.assertFalse(target.exists())
+                self.assertEqual(self.appcast.read_bytes(), original_feed)
+                self.assertEqual(first.read_bytes(), original_archive)
+                self.assertEqual(list(self.output.glob(".prepare-update-*.zip-*")), [])
+        self.fake.failure = None
+        self.prepare("zStats-7.1.0-71.zip", b"seventy-one", "https://example.com/v7.1.0/")
+
+    def test_promotion_failure_rolls_back_and_same_build_retries(self):
+        self.prepare("zStats-8.0.0-80.zip", b"eighty", "https://example.com/v8.0.0/")
+        original_feed = self.appcast.read_bytes()
+        target = self.output / "zStats-8.1.0-81.zip"
+
+        def fail_feed(source, destination):
+            if Path(destination) == self.appcast:
+                raise OSError("injected feed promotion failure")
+            os.replace(source, destination)
+
+        with self.assertRaises(OSError):
+            self.prepare(
+                target.name, b"eighty-one", "https://example.com/v8.1.0/",
+                replace=fail_feed,
+            )
+        self.assertFalse(target.exists())
+        self.assertEqual(self.appcast.read_bytes(), original_feed)
+        self.prepare(target.name, b"eighty-one", "https://example.com/v8.1.0/")
+        self.assertTrue(target.exists())
+
+    def test_interrupted_promotion_recovers_without_regenerating(self):
+        self.prepare("zStats-9.0.0-90.zip", b"ninety", "https://example.com/v9.0.0/")
+        old_feed = self.appcast.read_bytes()
+        target = self.output / "zStats-9.1.0-91.zip"
+
+        def interrupt():
+            raise SimulatedInterruption()
+
+        with self.assertRaises(SimulatedInterruption):
+            self.prepare(
+                target.name, b"ninety-one", "https://example.com/v9.1.0/",
+                after_archive_promoted=interrupt,
+            )
+        self.assertTrue(target.exists())
+        self.assertEqual(self.appcast.read_bytes(), old_feed)
+        generated_count = len(self.fake.generated)
+        self.prepare(target.name, b"ignored-on-recovery", "https://example.com/v9.1.0/")
+        self.assertEqual(len(self.fake.generated), generated_count)
+        self.assertIn("91", self.items())
+        self.assertEqual(list(self.output.glob(".prepare-update-*.zip-*")), [])
+
+    def test_completed_duplicate_is_refused(self):
+        name = "zStats-10.0.0-100.zip"
+        self.prepare(name, b"one hundred", "https://example.com/v10.0.0/")
+        with self.assertRaises(module.PreparationError):
+            self.prepare(name, b"different", "https://example.com/v10.0.0/")
+
+    def test_concurrent_writer_is_refused_and_lock_releases(self):
+        with module._exclusive_lock(self.output):
+            with self.assertRaises(module.PreparationError):
+                self.prepare("zStats-11.0.0-110.zip", b"locked", "https://example.com/v11.0.0/")
+        self.prepare("zStats-11.0.0-110.zip", b"unlocked", "https://example.com/v11.0.0/")
 
 
 if __name__ == "__main__":

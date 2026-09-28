@@ -26,14 +26,11 @@ xcrun stapler validate "$APP"
 OUTPUT="$PWD/dist/updates"
 ARCHIVE="$OUTPUT/zStats-$VERSION-$BUILD.zip"
 mkdir -p "$OUTPUT"
-if [[ -e "$ARCHIVE" ]]; then
-    printf 'Archive already exists; use a new build number: %s\n' "$ARCHIVE" >&2
-    exit 1
-fi
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
 python3 scripts/prepare-update.py \
     --generator "$TOOLS/generate_appcast" \
     --verifier "$TOOLS/sign_update" \
+    --archiver /usr/bin/ditto \
+    --app "$APP" \
     --account "$ACCOUNT" \
     --download-url-prefix "$1" \
     --archive "$ARCHIVE" \
