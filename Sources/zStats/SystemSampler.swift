@@ -14,13 +14,11 @@ final class SystemSampler: @unchecked Sendable {
     private var lastProjectDiscovery = -Double.infinity
     private var lastHistorySave = -Double.infinity
     private var projects: [ProjectReading] = []
-    private var archive = HistoryArchive()
-    private let historyURL: URL
-    private(set) var persistenceError: String?
+    private let historyPersistence: HistoryPersistence
 
     init(historyURL: URL? = nil) {
-        self.historyURL = historyURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("zStats/history.json")
-        if let data = try? Data(contentsOf: self.historyURL), let saved = try? JSONDecoder().decode(HistoryArchive.self, from: data) { archive = saved }
+        let url = historyURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("zStats/history.json")
+        historyPersistence = HistoryPersistence(url: url)
     }
 
     func sample(enabled: Set<String> = Set(MonitorPreferences.monitorOrder), sensorMonitoring: Bool = true) -> (SystemSnapshot, [ProjectReading], HistoryArchive, String?) {
@@ -105,18 +103,10 @@ final class SystemSampler: @unchecked Sendable {
                 return p.processes.isEmpty ? nil : p
             }
         }
-        archive.record(HistoryPoint(result))
-        if time - lastHistorySave >= 60 { saveHistory(); lastHistorySave = time }
+        historyPersistence.record(HistoryPoint(result))
+        if time - lastHistorySave >= 60 { historyPersistence.save(); lastHistorySave = time }
         previousSystem = raw; previousProcesses = next; previousTime = time
-        return (result, projects, archive, persistenceError)
-    }
-
-    private func saveHistory() {
-        do {
-            try FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(archive).write(to: historyURL, options: .atomic)
-            persistenceError = nil
-        } catch { persistenceError = "History could not be saved: \(error.localizedDescription)" }
+        return (result, projects, historyPersistence.archive, historyPersistence.errorMessage)
     }
 
     private func discoverProjects(processes: [ProcessReading]) -> [ProjectReading] {
