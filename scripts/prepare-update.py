@@ -280,7 +280,7 @@ def _validate_generated(staged_appcast, archive, download_url_prefix, previous_i
 
 def _finish_transaction(
     workspace, metadata, archive, appcast, verifier, account, download_url_prefix,
-    previous_items, runner, replace, after_archive_promoted=None,
+    previous_items, runner, replace, after_archive_promoted=None, after_feed_promoted=None,
 ):
     staged_archive = workspace / archive.name
     staged_appcast = workspace / "appcast.xml"
@@ -317,6 +317,8 @@ def _finish_transaction(
         if after_archive_promoted is not None:
             after_archive_promoted()
         replace(staged_appcast, appcast)
+        if after_feed_promoted is not None:
+            after_feed_promoted()
     except Exception:
         if appcast.is_file() and _sha256(appcast) == metadata["feed_sha256"]:
             _remove_workspace(workspace, archive.parent, metadata["workspace_prefix"])
@@ -333,7 +335,7 @@ def _finish_transaction(
 
 def _recover_transaction(
     archive, appcast, verifier, account, download_url_prefix, previous_items,
-    runner, replace, after_archive_promoted=None,
+    runner, replace, after_archive_promoted=None, after_feed_promoted=None,
 ):
     prefix = f".prepare-update-{archive.name}-"
     workspaces = [path for path in archive.parent.glob(f"{prefix}*") if path.is_dir()]
@@ -341,6 +343,9 @@ def _recover_transaction(
         raise PreparationError(f"Multiple interrupted transactions exist for {archive.name}")
     if not workspaces:
         return False
+    if appcast.exists():
+        runner([str(verifier), "--verify", "--account", account, str(appcast)], appcast.parent)
+        _verify_archives(previous_items, appcast.parent, verifier, account, runner)
     workspace = workspaces[0]
     transaction_path = workspace / TRANSACTION_FILE
     try:
@@ -366,14 +371,14 @@ def _recover_transaction(
             raise PreparationError(f"Interrupted transaction metadata is incomplete: {workspace}")
     _finish_transaction(
         workspace, metadata, archive, appcast, verifier, account, download_url_prefix,
-        previous_items, runner, replace, after_archive_promoted,
+        previous_items, runner, replace, after_archive_promoted, after_feed_promoted,
     )
     return True
 
 
 def prepare_update(
     generator, verifier, archiver, app, account, download_url_prefix, archive, appcast,
-    run_command=None, replace=os.replace, after_archive_promoted=None,
+    run_command=None, replace=os.replace, after_archive_promoted=None, after_feed_promoted=None,
 ):
     prefix = urlsplit(download_url_prefix)
     if (
@@ -407,6 +412,8 @@ def prepare_update(
     archive_match = ARCHIVE_NAME.fullmatch(archive.name)
     if archive_match is None:
         raise PreparationError(f"Update archive has an unexpected name: {archive.name}")
+    if archive_match.groups() != (candidate_version, candidate_build):
+        raise PreparationError("Candidate archive name does not match the application version and build")
     if archive.parent != appcast.parent:
         raise PreparationError("Update archive and appcast must use the same output directory")
 
@@ -421,7 +428,7 @@ def prepare_update(
 
         if _recover_transaction(
             archive, appcast, verifier, account, download_url_prefix, previous_items,
-            runner, replace, after_archive_promoted,
+            runner, replace, after_archive_promoted, after_feed_promoted,
         ):
             return
         _validate_build_history(
@@ -485,7 +492,7 @@ def prepare_update(
             _write_transaction(workspace, metadata)
             _finish_transaction(
                 workspace, metadata, archive, appcast, verifier, account, download_url_prefix,
-                previous_items, runner, replace, after_archive_promoted,
+                previous_items, runner, replace, after_archive_promoted, after_feed_promoted,
             )
         except Exception:
             if workspace.exists() and not archive.exists():

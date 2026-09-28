@@ -78,6 +78,8 @@ class FakeTools:
             return
         if "--verify" in command:
             verified_path = Path(command[-1] if command[-1].endswith(".xml") else command[-2])
+            if self.failure == "feed" and verified_path.suffix == ".xml":
+                raise OSError("injected feed verification failure")
             if self.failure == "signature" and verified_path.name == "zStats-7.1.0-71.zip":
                 raise OSError("injected signature failure")
             if verified_path.suffix == ".xml":
@@ -307,6 +309,79 @@ class PrepareUpdateTests(unittest.TestCase):
         self.assertEqual(len(self.fake.generated), generated_count)
         self.assertIn("91", self.items())
         self.assertEqual(list(self.output.glob(".prepare-update-*.zip-*")), [])
+
+    def test_interrupted_recovery_reverifies_retained_archive(self):
+        retained = self.prepare("zStats-12.0.0-120.zip", b"one twenty", "https://example.com/v12.0.0/")
+        old_feed = self.appcast.read_bytes()
+
+        def interrupt():
+            raise SimulatedInterruption()
+
+        with self.assertRaises(SimulatedInterruption):
+            self.prepare(
+                "zStats-12.1.0-121.zip", b"one twenty-one", "https://example.com/v12.1.0/",
+                after_archive_promoted=interrupt,
+            )
+        retained_bytes = bytearray(retained.read_bytes())
+        retained_bytes[len(retained_bytes) // 2] ^= 1
+        retained.write_bytes(retained_bytes)
+        with self.assertRaises(AssertionError):
+            self.prepare(
+                "zStats-12.1.0-121.zip", b"retry", "https://example.com/v12.1.0/",
+            )
+        self.assertEqual(self.appcast.read_bytes(), old_feed)
+        self.assertTrue((self.output / "zStats-12.1.0-121.zip").exists())
+        self.assertEqual(len(list(self.output.glob(".prepare-update-zStats-12.1.0-121.zip-*"))), 1)
+
+    def test_completed_but_uncleaned_recovery_reverifies_feed_and_archives(self):
+        self.prepare("zStats-13.0.0-130.zip", b"one thirty", "https://example.com/v13.0.0/")
+
+        def interrupt():
+            raise SimulatedInterruption()
+
+        with self.assertRaises(SimulatedInterruption):
+            self.prepare(
+                "zStats-13.1.0-131.zip", b"one thirty-one", "https://example.com/v13.1.0/",
+                after_feed_promoted=interrupt,
+            )
+        workspace_pattern = ".prepare-update-zStats-13.1.0-131.zip-*"
+        self.assertEqual(len(list(self.output.glob(workspace_pattern))), 1)
+        self.fake.failure = "feed"
+        with self.assertRaises(OSError):
+            self.prepare("zStats-13.1.0-131.zip", b"retry", "https://example.com/v13.1.0/")
+        self.assertEqual(len(list(self.output.glob(workspace_pattern))), 1)
+        self.fake.failure = None
+        verified_before = len(self.fake.verified)
+        self.prepare("zStats-13.1.0-131.zip", b"retry", "https://example.com/v13.1.0/")
+        verified = self.fake.verified[verified_before:]
+        self.assertIn(self.appcast.read_bytes(), verified)
+        self.assertIn((self.output / "zStats-13.0.0-130.zip").read_bytes(), verified)
+        self.assertIn((self.output / "zStats-13.1.0-131.zip").read_bytes(), verified)
+        self.assertEqual(list(self.output.glob(workspace_pattern)), [])
+
+    def test_pending_transaction_rejects_app_filename_mismatch_before_recovery(self):
+        self.prepare("zStats-14.0.0-140.zip", b"one forty", "https://example.com/v14.0.0/")
+        old_feed = self.appcast.read_bytes()
+
+        def interrupt():
+            raise SimulatedInterruption()
+
+        with self.assertRaises(SimulatedInterruption):
+            self.prepare(
+                "zStats-14.1.0-141.zip", b"one forty-one", "https://example.com/v14.1.0/",
+                after_archive_promoted=interrupt,
+            )
+        tool_calls = len(self.fake.commands)
+        with self.assertRaises(module.PreparationError):
+            self.prepare(
+                "zStats-14.1.0-141.zip", b"mismatch", "https://example.com/v14.1.0/",
+                app_build="140",
+            )
+        self.assertEqual(len(self.fake.commands), tool_calls)
+        self.assertEqual(self.appcast.read_bytes(), old_feed)
+        self.assertTrue((self.output / "zStats-14.1.0-141.zip").exists())
+        self.prepare("zStats-14.1.0-141.zip", b"retry", "https://example.com/v14.1.0/")
+        self.assertIn("141", self.items())
 
     def test_completed_duplicate_is_refused(self):
         name = "zStats-10.0.0-100.zip"
