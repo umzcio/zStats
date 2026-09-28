@@ -20,6 +20,11 @@ import StatsCore
     private var rememberedPosition: Bool?
     private var displays: [StatusWidgetDisplay] = []
     private var anchorOffset: CGFloat?
+    private lazy var statusUpdate = CoalescedUpdate(enqueue: { action in
+        DispatchQueue.main.async { action() }
+    }) { [weak self] in
+        self?.updateStatus()
+    }
 
     func start(store: MonitorStore, openDashboard: @escaping () -> Void, openPreferences: @escaping () -> Void) {
         self.openDashboard = openDashboard
@@ -64,7 +69,7 @@ import StatsCore
         panel.contentView = hosting
         self.panel = panel
         subscription = store.objectWillChange.sink { [weak self] in
-            DispatchQueue.main.async { self?.updateStatus() }
+            MainActor.assumeIsolated { self?.statusUpdate.request() }
         }
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.hide() }
