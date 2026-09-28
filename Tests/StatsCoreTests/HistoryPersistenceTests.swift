@@ -3,6 +3,7 @@ import Testing
 @testable import StatsCore
 
 private enum FixtureError: Error { case injected, missing }
+private let fixtureNow = Date(timeIntervalSince1970: 2_000_000_300)
 
 private final class FixtureFiles {
     var failReads = false
@@ -33,8 +34,8 @@ private final class FixtureFiles {
             createDirectory: { _ in },
             writeAtomically: { data, destination in try data.write(to: destination) }
         )
-        let missing = HistoryPersistence(url: url, files: missingFiles)
-        missing.record(sample, now: sample.date)
+        let missing = persistence(at: url, files: missingFiles)
+        missing.record(sample)
         #expect(missing.save())
 
         let original = Data("must remain".utf8)
@@ -45,8 +46,8 @@ private final class FixtureFiles {
             createDirectory: { _ in },
             writeAtomically: { data, destination in try data.write(to: destination) }
         )
-        let unreadable = HistoryPersistence(url: url, files: unreadableFiles)
-        unreadable.record(sample, now: sample.date)
+        let unreadable = persistence(at: url, files: unreadableFiles)
+        unreadable.record(sample)
         #expect(!unreadable.save())
         #expect(try Data(contentsOf: url) == original)
     }
@@ -65,8 +66,14 @@ private func point(at seconds: TimeInterval, cpu: Double) -> HistoryPoint {
 
 private func archive(containing points: [HistoryPoint]) -> HistoryArchive {
     var archive = HistoryArchive()
-    for point in points { archive.record(point, now: point.date) }
+    for point in points { archive.record(point, now: fixtureNow) }
     return archive
+}
+
+private struct EncodedArchive: Encodable { let points: [HistoryPoint] }
+
+private func persistence(at url: URL, files: HistoryFileOperations = .live) -> HistoryPersistence {
+    HistoryPersistence(url: url, files: files, now: { fixtureNow })
 }
 
 private func recoveryFiles(beside url: URL) throws -> [URL] {
@@ -76,12 +83,12 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
 
 @Test func missingHistoryStartsEmptyAndCanBeSaved() throws {
     try withHistoryFixture { url in
-        let persistence = HistoryPersistence(url: url)
+        let persistence = persistence(at: url)
         #expect(persistence.archive.points.isEmpty)
         #expect(persistence.errorMessage == nil)
 
         let sample = point(at: 2_000_000_000, cpu: 12)
-        persistence.record(sample, now: sample.date)
+        persistence.record(sample)
         #expect(persistence.save())
         let saved = try JSONDecoder().decode(HistoryArchive.self, from: Data(contentsOf: url))
         #expect(saved.points == [sample])
@@ -93,7 +100,7 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
         let original = archive(containing: [point(at: 2_000_000_000, cpu: 10)])
         try JSONEncoder().encode(original).write(to: url)
 
-        let persistence = HistoryPersistence(url: url)
+        let persistence = persistence(at: url)
         #expect(persistence.archive.points == original.points)
         #expect(persistence.save())
         let saved = try JSONDecoder().decode(HistoryArchive.self, from: Data(contentsOf: url))
@@ -105,9 +112,9 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
     try withHistoryFixture { url in
         let malformed = Data([0x00, 0xff, 0x7b, 0x6e, 0x6f])
         try malformed.write(to: url)
-        let persistence = HistoryPersistence(url: url)
+        let persistence = persistence(at: url)
         let sample = point(at: 2_000_000_000, cpu: 20)
-        persistence.record(sample, now: sample.date)
+        persistence.record(sample)
 
         #expect(persistence.save())
         let backups = try recoveryFiles(beside: url)
@@ -124,9 +131,9 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
         try malformed.write(to: url)
         let fixture = FixtureFiles()
         fixture.failRecoveryWrites = true
-        let persistence = HistoryPersistence(url: url, files: fixture.operations)
+        let persistence = persistence(at: url, files: fixture.operations)
         let sample = point(at: 2_000_000_000, cpu: 30)
-        persistence.record(sample, now: sample.date)
+        persistence.record(sample)
 
         #expect(!persistence.save())
         #expect(try Data(contentsOf: url) == malformed)
@@ -148,9 +155,9 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
         try originalData.write(to: url)
         let fixture = FixtureFiles()
         fixture.failReads = true
-        let persistence = HistoryPersistence(url: url, files: fixture.operations)
+        let persistence = persistence(at: url, files: fixture.operations)
         let sample = point(at: 2_000_000_120, cpu: 50)
-        persistence.record(sample, now: sample.date)
+        persistence.record(sample)
 
         #expect(!persistence.save())
         #expect(try Data(contentsOf: url) == originalData)
@@ -164,9 +171,9 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
         try JSONEncoder().encode(archive(containing: [stored])).write(to: url)
         let fixture = FixtureFiles()
         fixture.failReads = true
-        let persistence = HistoryPersistence(url: url, files: fixture.operations)
+        let persistence = persistence(at: url, files: fixture.operations)
         let pending = point(at: 2_000_000_120, cpu: 70)
-        persistence.record(pending, now: pending.date)
+        persistence.record(pending)
         #expect(!persistence.save())
 
         fixture.failReads = false
@@ -185,9 +192,9 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
         try JSONEncoder().encode(archive(containing: [storedOverlap, storedLater])).write(to: url)
         let fixture = FixtureFiles()
         fixture.failReads = true
-        let persistence = HistoryPersistence(url: url, files: fixture.operations)
+        let persistence = persistence(at: url, files: fixture.operations)
         let newerOverlap = point(at: 2_000_000_020, cpu: 63)
-        persistence.record(newerOverlap, now: newerOverlap.date)
+        persistence.record(newerOverlap)
 
         fixture.failReads = false
         #expect(persistence.save())
@@ -195,14 +202,33 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
     }
 }
 
+@Test func recoveryMergeDoesNotTrustFutureArchiveTimestampsForRetention() throws {
+    try withHistoryFixture { url in
+        let recent = point(at: fixtureNow.timeIntervalSince1970 - 120, cpu: 64)
+        let future = point(at: fixtureNow.timeIntervalSince1970 + 365 * 86400, cpu: 65)
+        try JSONEncoder().encode(EncodedArchive(points: [recent, future])).write(to: url)
+        let fixture = FixtureFiles()
+        fixture.failReads = true
+        let persistence = persistence(at: url, files: fixture.operations)
+        let pending = point(at: fixtureNow.timeIntervalSince1970, cpu: 66)
+        persistence.record(pending)
+
+        fixture.failReads = false
+        #expect(persistence.save())
+        #expect(persistence.archive.points == [recent, pending])
+        let saved = try JSONDecoder().decode(HistoryArchive.self, from: Data(contentsOf: url))
+        #expect(saved.points == [recent, pending])
+    }
+}
+
 @Test func malformedHistoryBackupsUseUniqueNames() throws {
     try withHistoryFixture { url in
         try Data("first bad file".utf8).write(to: url)
-        let first = HistoryPersistence(url: url)
+        let first = persistence(at: url)
         #expect(first.save())
 
         try Data("second bad file".utf8).write(to: url)
-        let second = HistoryPersistence(url: url)
+        let second = persistence(at: url)
         #expect(second.save())
 
         let backups = try recoveryFiles(beside: url)
@@ -215,9 +241,9 @@ private func recoveryFiles(beside url: URL) throws -> [URL] {
     try withHistoryFixture { url in
         let first = point(at: 2_000_000_000, cpu: 80)
         try JSONEncoder().encode(archive(containing: [first])).write(to: url)
-        let persistence = HistoryPersistence(url: url)
+        let persistence = persistence(at: url)
         let second = point(at: 2_000_000_120, cpu: 90)
-        persistence.record(second, now: second.date)
+        persistence.record(second)
 
         #expect(persistence.save())
         let saved = try JSONDecoder().decode(HistoryArchive.self, from: Data(contentsOf: url))

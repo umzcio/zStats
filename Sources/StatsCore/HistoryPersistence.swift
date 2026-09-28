@@ -36,11 +36,13 @@ public final class HistoryPersistence {
 
     private let url: URL
     private let files: HistoryFileOperations
+    private let now: () -> Date
     private var needsLoadResolution = false
 
-    public init(url: URL, files: HistoryFileOperations = .live) {
+    public init(url: URL, files: HistoryFileOperations = .live, now: @escaping () -> Date = Date.init) {
         self.url = url
         self.files = files
+        self.now = now
         archive = HistoryArchive()
 
         do {
@@ -53,8 +55,8 @@ public final class HistoryPersistence {
         }
     }
 
-    public func record(_ point: HistoryPoint, now: Date = Date()) {
-        archive.record(point, now: now)
+    public func record(_ point: HistoryPoint) {
+        archive.record(point, now: now())
     }
 
     @discardableResult
@@ -104,7 +106,7 @@ public final class HistoryPersistence {
 
     private func merge(_ existing: HistoryArchive, with pending: HistoryArchive) -> HistoryArchive {
         let points = (existing.points + pending.points).sorted { $0.date < $1.date }
-        let retentionNow = max(Date(), points.last?.date ?? Date())
+        let retentionNow = now()
         var merged = HistoryArchive()
         for point in points {
             merged.record(point, now: retentionNow)
