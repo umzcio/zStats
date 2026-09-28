@@ -79,6 +79,15 @@ static double number(CFDictionaryRef dict, CFStringRef key) {
     double value;
     return v && CFGetTypeID(v) == CFNumberGetTypeID() && CFNumberGetValue(v, kCFNumberDoubleType, &value) ? value : NAN;
 }
+static int unsigned_number(CFDictionaryRef dict, CFStringRef key, uint64_t *output) {
+    if (!dict) return 0;
+    CFTypeRef value = CFDictionaryGetValue(dict, key);
+    int64_t signed_value = 0;
+    if (!value || CFGetTypeID(value) != CFNumberGetTypeID() ||
+        !CFNumberGetValue(value, kCFNumberSInt64Type, &signed_value) || signed_value < 0) return 0;
+    *output = (uint64_t)signed_value;
+    return 1;
+}
 static CFDictionaryRef properties(io_registry_entry_t entry) {
     CFMutableDictionaryRef result = NULL;
     IORegistryEntryCreateCFProperties(entry, &result, kCFAllocatorDefault, 0);
@@ -109,6 +118,54 @@ int zs_network(ZSInterface **output) {
         cursor += header->ifm_msglen;
     }
     free(buffer); *output = rows; return count;
+}
+int zs_disks(ZSDisk **output) {
+    *output = NULL;
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    CFMutableDictionaryRef matching = IOServiceMatching("IOBlockStorageDriver");
+    if (!matching || IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) != KERN_SUCCESS) return -1;
+
+    ZSDisk *rows = NULL;
+    int count = 0, capacity = 0, failed = 0;
+    io_object_t entry;
+    while ((entry = IOIteratorNext(iterator))) {
+        uint64_t registry_id = 0;
+        if (IORegistryEntryGetRegistryEntryID(entry, &registry_id) != KERN_SUCCESS) {
+            IOObjectRelease(entry);
+            continue;
+        }
+        if (count == capacity) {
+            int next_capacity = capacity == 0 ? 8 : capacity * 2;
+            ZSDisk *next = realloc(rows, (size_t)next_capacity * sizeof(ZSDisk));
+            if (!next) {
+                IOObjectRelease(entry);
+                failed = 1;
+                break;
+            }
+            rows = next;
+            capacity = next_capacity;
+        }
+        ZSDisk *row = &rows[count++];
+        memset(row, 0, sizeof(*row));
+        row->registry_id = registry_id;
+        CFDictionaryRef props = properties(entry);
+        CFTypeRef stats = props ? CFDictionaryGetValue(props, CFSTR("Statistics")) : NULL;
+        if (stats && CFGetTypeID(stats) == CFDictionaryGetTypeID() &&
+            unsigned_number((CFDictionaryRef)stats, CFSTR("Bytes (Read)"), &row->read_bytes) &&
+            unsigned_number((CFDictionaryRef)stats, CFSTR("Bytes (Write)"), &row->write_bytes)) {
+            row->stats_valid = 1;
+        }
+        if (props) CFRelease(props);
+        IOObjectRelease(entry);
+    }
+    if (!IOIteratorIsValid(iterator)) failed = 1;
+    IOObjectRelease(iterator);
+    if (failed) {
+        free(rows);
+        return -1;
+    }
+    *output = rows;
+    return count;
 }
 void zs_system(ZSSystem *r) {
     memset(r, 0, sizeof(*r));
@@ -147,19 +204,6 @@ void zs_system(ZSSystem *r) {
         r->pressure = pressure; r->pressure_valid = 1;
     }
     io_iterator_t iterator;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOBlockStorageDriver"), &iterator) == KERN_SUCCESS) {
-        io_object_t entry;
-        while ((entry = IOIteratorNext(iterator))) {
-            CFDictionaryRef props = properties(entry);
-            CFTypeRef stats = props ? CFDictionaryGetValue(props, CFSTR("Statistics")) : NULL;
-            if (stats && CFGetTypeID(stats) == CFDictionaryGetTypeID()) {
-                double read = number(stats, CFSTR("Bytes (Read)")), write = number(stats, CFSTR("Bytes (Write)"));
-                if (isfinite(read) && isfinite(write)) { r->disk_read += read; r->disk_write += write; r->disk_valid = 1; }
-            }
-            if (props) CFRelease(props); IOObjectRelease(entry);
-        }
-        IOObjectRelease(iterator);
-    }
     if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator) == KERN_SUCCESS) {
         io_object_t entry;
         while ((entry = IOIteratorNext(iterator))) {

@@ -4,11 +4,11 @@ import CStats
 
 final class SystemSampler: @unchecked Sendable {
     // Owned exclusively by the store's sampling task.
-    private var previousSystem: ZSSystem?
     private var previousProcesses: [ProcessIdentity: ZSProcess] = [:]
     private var previousTime: TimeInterval?
     private var systemCounterTracker = SystemCounterTracker()
     private var networkTracker = NetworkTracker()
+    private var diskTracker = DiskTracker()
     private let telemetry = ProcessTelemetrySampler()
     private let sensors = SensorSampler()
     private let appNames = AppNameResolver()
@@ -68,10 +68,22 @@ final class SystemSampler: @unchecked Sendable {
         result.received = network.received; result.sent = network.sent
         result.interface = counters.keys.sorted().joined(separator: ", ")
         if result.interface.isEmpty { result.interface = "—" }
-        if raw.disk_valid != 0 {
-            result.diskRead = CounterRate.rate(current: raw.disk_read, previous: previousSystem.flatMap { $0.disk_valid != 0 ? $0.disk_read : nil }, seconds: elapsed)
-            result.diskWrite = CounterRate.rate(current: raw.disk_write, previous: previousSystem.flatMap { $0.disk_valid != 0 ? $0.disk_write : nil }, seconds: elapsed)
+        var diskPointer: UnsafeMutablePointer<ZSDisk>?
+        let diskCount = zs_disks(&diskPointer)
+        var diskSamples: [DiskDeviceSample]?
+        if diskCount >= 0 {
+            diskSamples = []
+            if let diskPointer {
+                for index in 0..<Int(diskCount) {
+                    let disk = diskPointer[index]
+                    let valid = disk.stats_valid != 0
+                    diskSamples?.append(.init(id: disk.registry_id, read: valid ? disk.read_bytes : nil, write: valid ? disk.write_bytes : nil))
+                }
+            }
         }
+        if let diskPointer { zs_free(diskPointer) }
+        let disk = diskTracker.sample(diskSamples, time: time)
+        result.diskRead = disk.read; result.diskWrite = disk.write
         result.gpu = finite(raw.gpu); result.gpuMemory = finite(raw.gpu_memory)
         result.battery = finite(raw.battery); result.charging = raw.charging != 0
         result.batteryMinutes = finite(raw.battery_minutes); result.batteryHealth = finite(raw.battery_health)
@@ -113,7 +125,7 @@ final class SystemSampler: @unchecked Sendable {
         }
         historyPersistence.record(HistoryPoint(result))
         if time - lastHistorySave >= 60 { historyPersistence.save(); lastHistorySave = time }
-        previousSystem = raw; previousProcesses = next; previousTime = time
+        previousProcesses = next; previousTime = time
         return (result, projects, historyPersistence.archive, historyPersistence.errorMessage)
     }
 

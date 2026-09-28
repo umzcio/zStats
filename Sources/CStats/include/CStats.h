@@ -14,8 +14,8 @@ typedef struct {
     double memory_total, memory_used, memory_app, memory_wired, memory_compressed, memory_cached, swap;
     int pressure;
     int memory_total_valid, memory_valid, swap_valid, pressure_valid;
-    uint64_t net_in, net_out, disk_read, disk_write;
-    int net_valid, disk_valid;
+    uint64_t net_in, net_out;
+    int net_valid;
     char interface[32];
     double gpu, gpu_memory, battery, battery_minutes, battery_health, battery_cycles, battery_watts, battery_temperature;
     int charging;
@@ -24,7 +24,14 @@ typedef struct {
     char name[32];
     uint64_t received, sent;
 } ZSInterface;
+typedef struct {
+    uint64_t registry_id, read_bytes, write_bytes;
+    int stats_valid;
+} ZSDisk;
 int zs_network(ZSInterface **output);
+// Returns -1 on global failure, or a nonnegative row count on success.
+// The caller releases a non-NULL output with zs_free.
+int zs_disks(ZSDisk **output);
 int zs_processes(ZSProcess **output);
 void zs_free(void *pointer);
 void zs_system(ZSSystem *output);
