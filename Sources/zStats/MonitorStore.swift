@@ -93,6 +93,7 @@ enum HistoryRange: String, CaseIterable {
         }
     }
     private var task: Task<Void, Never>?
+    private var storageErrorEpisode = ErrorEpisodeTracker()
     var snapshot: SystemSnapshot { referenceMode ? ReferenceData.snapshot : live }
     var projects: [ProjectReading] { referenceMode ? ReferenceData.projects : liveProjects }
 
@@ -124,7 +125,7 @@ enum HistoryRange: String, CaseIterable {
                 let data = await Task.detached(priority: .utility) { sampler.sample(enabled: configuration.enabledMonitors, sensorMonitoring: configuration.sensorMonitoring) }.value
                 guard let self else { return }
                 self.live = data.0; self.liveProjects = data.1; self.archive = data.2
-                if let error = data.3 { self.error = error }
+                if let error = self.storageErrorEpisode.notification(for: data.3) { self.error = error }
                 self.recent.append(HistoryPoint(data.0)); self.recent = Array(self.recent.suffix(1800)); self.sampled = true
                 try? await Task.sleep(for: .seconds(self.preferences.refreshInterval))
             }
