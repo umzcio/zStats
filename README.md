@@ -96,15 +96,15 @@ Before the first public release:
    bash scripts/release.sh
    ```
 
-5. Prepare the signed ZIP archive and appcast, supplying the HTTPS directory where the archive will be hosted:
+5. Prepare the signed ZIP archive and appcast, supplying the immutable HTTPS directory for this release tag:
 
    ```sh
-   bash scripts/prepare-update.sh https://YOUR-UPDATE-HOST/downloads/
+   bash scripts/prepare-update.sh https://github.com/OWNER/zStats/releases/download/vVERSION/
    ```
 
-   This checks the embedded public key against Keychain, verifies the signed/notarized app, and creates `dist/updates/zStats-VERSION-BUILD.zip` and a signed `dist/updates/appcast.xml`. It never uploads anything. Use `ZSTATS_SPARKLE_KEY_ACCOUNT` if your key has a different Keychain account. Existing archives are not overwritten. Keep this staging directory between releases to retain older feed entries.
+   This checks the embedded public key against Keychain, verifies the signed/notarized app, and creates `dist/updates/zStats-VERSION-BUILD.zip` and a signed `dist/updates/appcast.xml`. It never uploads anything. Use `ZSTATS_SPARKLE_KEY_ACCOUNT` if your key has a different Keychain account. Existing archives are not overwritten. Keep this staging directory between releases. Sparkle verifies the prior feed and retained archives, the generator processes only the new archive and preserves every older feed item unchanged, then Sparkle signs and verifies the new archive and final feed after the new item is added.
 
-Upload the archive to its download URL and the appcast to the exact `feedURL` embedded in the app. Public GitHub Releases can host the ZIP; the appcast needs a stable HTTPS URL. A private repository's release assets and raw files require authentication, so they cannot serve as an anonymous update feed; use separate public hosting or an authenticated update service. Do not embed GitHub access tokens in the app. Do not edit a generated signed appcast without regenerating its signature. Before publishing the first update, test discovery, download, installation, and relaunch from an older signed build. Increment the build number for every update, even when the display version stays the same.
+Upload each archive to the matching GitHub release tag used in that preparation command, and upload the appcast to the exact `feedURL` embedded in the app. Do not replace an older archive or move its URL to a newer tag: published enclosure URLs, lengths, and signatures remain immutable across later appcast generations. The appcast itself needs a stable HTTPS URL. A private repository's release assets and raw files require authentication, so they cannot serve as an anonymous update feed; use separate public hosting or an authenticated update service. Do not embed GitHub access tokens in the app. Do not edit a generated signed appcast without regenerating its signature. Before publishing the first update, test discovery, download, installation, and relaunch from an older signed build. Increment the build number for every update, even when the display version stays the same.
 
 The feed, update archive, and release notes are signed following [Sparkle's setup instructions](https://sparkle-project.org/documentation/). No production feed, signing identity, Sparkle private key, or Apple API credentials are supplied by the repository.
 

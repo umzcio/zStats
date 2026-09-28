@@ -31,6 +31,11 @@ if [[ -e "$ARCHIVE" ]]; then
     exit 1
 fi
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
-"$TOOLS/generate_appcast" --account "$ACCOUNT" --download-url-prefix "$1" \
-    --maximum-deltas 0 --embed-release-notes -o "$OUTPUT/appcast.xml" "$OUTPUT"
+python3 scripts/prepare-update.py \
+    --generator "$TOOLS/generate_appcast" \
+    --verifier "$TOOLS/sign_update" \
+    --account "$ACCOUNT" \
+    --download-url-prefix "$1" \
+    --archive "$ARCHIVE" \
+    --appcast "$OUTPUT/appcast.xml"
 printf 'Prepared %s and signed appcast.xml. Nothing has been published.\n' "$ARCHIVE"
