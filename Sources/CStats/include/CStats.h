@@ -10,8 +10,10 @@ typedef struct {
 } ZSProcess;
 typedef struct {
     uint64_t user_ticks, system_ticks, idle_ticks, nice_ticks;
+    int cpu_valid;
     double memory_total, memory_used, memory_app, memory_wired, memory_compressed, memory_cached, swap;
     int pressure;
+    int memory_total_valid, memory_valid, swap_valid, pressure_valid;
     uint64_t net_in, net_out, disk_read, disk_write;
     int net_valid, disk_valid;
     char interface[32];

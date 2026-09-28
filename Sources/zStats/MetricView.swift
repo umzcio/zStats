@@ -14,7 +14,7 @@ struct MetricView: View {
                         Text(headline).font(.system(size: 11)).foregroundStyle(.secondary)
                         let value = Format.value(metric, s, decimals: store.preferences.preciseNumbers ? 2 : 0)
                         ValueText(value: value.0, unit: value.1, size: 42)
-                        if metric == .memory { PressureBadge(pressure: s.pressure) }
+                        if metric == .memory, let pressure = s.pressure { PressureBadge(pressure: pressure) }
                         Spacer()
                         ForEach(Array(heroStats.enumerated()), id: \.offset) { _, item in
                             HStack { Text(item.0).foregroundStyle(.secondary); Spacer(); Text(item.1).monospacedDigit() }.font(.system(size: 10))
@@ -58,7 +58,7 @@ struct MetricView: View {
     private var heroStats: [(String, String)] {
         switch metric {
         case .cpu: return [("Average", average), ("Load", Format.number(s.load, decimals: 2)), ("Temperature", StatusWidgetRenderer.temperature(s.cpuTemperature, preference: store.preferences.temperatureUnit))]
-        case .memory: return [("Free", Format.memory(s.memoryTotal - s.memoryUsed)), ("Swap", Format.memory(s.swap))]
+        case .memory: return [("Free", Format.memory(s.memoryUsed.map { max(0, s.memoryTotal - $0) })), ("Swap", Format.memory(s.swap))]
         case .disk: return [("Used", Format.memory(s.diskTotal - s.diskFree)), ("Writing", Format.rate(s.diskWrite))]
         case .network: return [("Session down", Format.memory(s.received)), ("Session up", Format.memory(s.sent))]
         case .gpu: return [("Average", average), ("Peak", Format.percent(historySummary?.maximum)), ("Temperature", StatusWidgetRenderer.temperature(s.gpuTemperature, preference: store.preferences.temperatureUnit))]

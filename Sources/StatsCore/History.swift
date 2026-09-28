@@ -3,14 +3,14 @@ import Foundation
 public struct HistoryPoint: Codable, Equatable, Sendable {
     public var date: Date
     public var cpu: Double?
-    public var memory: Double
+    public var memory: Double?
     public var diskRead: Double?
     public var diskWrite: Double?
     public var download: Double?
     public var upload: Double?
     public var gpu: Double?
     public var battery: Double?
-    public init(date: Date, cpu: Double?, memory: Double, diskRead: Double? = nil, diskWrite: Double? = nil, download: Double? = nil, upload: Double? = nil, gpu: Double? = nil, battery: Double? = nil) {
+    public init(date: Date, cpu: Double?, memory: Double?, diskRead: Double? = nil, diskWrite: Double? = nil, download: Double? = nil, upload: Double? = nil, gpu: Double? = nil, battery: Double? = nil) {
         self.date = date; self.cpu = cpu; self.memory = memory; self.diskRead = diskRead; self.diskWrite = diskWrite; self.download = download; self.upload = upload; self.gpu = gpu; self.battery = battery
     }
     public init(_ snapshot: SystemSnapshot) {

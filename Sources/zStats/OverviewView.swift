@@ -45,7 +45,7 @@ struct OverviewCard: View {
                         let value = Format.value(metric, s, decimals: store.preferences.preciseNumbers ? 2 : 0)
                         ValueText(value: value.0, unit: value.1)
                         Spacer(minLength: 2)
-                        if metric == .memory { PressureBadge(pressure: s.pressure) }
+                        if metric == .memory, let pressure = s.pressure { PressureBadge(pressure: pressure) }
                     }
                 }
                 Spacer(minLength: 0)
@@ -116,7 +116,10 @@ struct BreakdownCard: View {
     private var colors: [Color] { kind == .types ? [Metric.cpu.color, Metric.projects.color, Metric.network.color, Color(hex: 0x44586E), Color.gray.opacity(0.3)] : (0..<5).map { metric.color.opacity(1 - Double($0) * 0.16) } }
     private var rows: [(String, Double)] {
         switch kind {
-        case .types: return [("App", s.memoryApp), ("Wired", s.memoryWired), ("Compressed", s.memoryCompressed), ("Cached", s.memoryCached), ("Free", max(0, s.memoryTotal - s.memoryUsed - s.memoryCached))]
+        case .types:
+            guard let app = s.memoryApp, let wired = s.memoryWired, let compressed = s.memoryCompressed,
+                  let cached = s.memoryCached, let used = s.memoryUsed else { return [] }
+            return [("App", app), ("Wired", wired), ("Compressed", compressed), ("Cached", cached), ("Free", max(0, s.memoryTotal - used - cached))]
         case .apps:
             let apps = s.apps.sorted { ($0.memory ?? 0) > ($1.memory ?? 0) }
             return apps.prefix(4).map { ($0.name, $0.memory ?? 0) } + [("Other", apps.dropFirst(4).reduce(0) { $0 + ($1.memory ?? 0) })]
@@ -133,7 +136,7 @@ struct BreakdownCard: View {
                 HStack(spacing: 12) {
                     Donut(segments: rows.enumerated().map { .init(value: $0.element.1, color: colors[$0.offset % colors.count]) }, value: center, subtitle: kind == .types ? "in use" : "all apps")
                     if rows.isEmpty {
-                        Text("Per-app power\nis unavailable.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(kind == .types ? "Memory breakdown\nis unavailable." : "Per-app power\nis unavailable.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4).frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         VStack(spacing: 8) {
                             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
@@ -152,7 +155,7 @@ struct BreakdownCard: View {
     }
     private var center: String {
         switch kind {
-        case .types: Format.percent(s.memoryTotal > 0 ? s.memoryUsed / s.memoryTotal * 100 : nil)
+        case .types: Format.percent(s.memoryUsed.flatMap { s.memoryTotal > 0 ? $0 / s.memoryTotal * 100 : nil })
         case .apps: Format.memory(s.apps.reduce(0) { $0 + ($1.memory ?? 0) })
         case .power: s.powerAppsAvailable ? Format.number(rows.reduce(0) { $0 + $1.1 }, decimals: 2) + " W" : "—"
         }

@@ -7,6 +7,7 @@ final class SystemSampler: @unchecked Sendable {
     private var previousSystem: ZSSystem?
     private var previousProcesses: [ProcessIdentity: ZSProcess] = [:]
     private var previousTime: TimeInterval?
+    private var systemCounterTracker = SystemCounterTracker()
     private var networkTracker = NetworkTracker()
     private let telemetry = ProcessTelemetrySampler()
     private let sensors = SensorSampler()
@@ -26,20 +27,27 @@ final class SystemSampler: @unchecked Sendable {
         let elapsed = previousTime.map { time - $0 } ?? 0
         var raw = ZSSystem(); zs_system(&raw)
         var result = SystemSnapshot()
-        if let old = previousSystem {
-            let user = CounterRate.rate(current: raw.user_ticks + raw.nice_ticks, previous: old.user_ticks + old.nice_ticks, seconds: 1)
-            let system = CounterRate.rate(current: raw.system_ticks, previous: old.system_ticks, seconds: 1)
-            let idle = CounterRate.rate(current: raw.idle_ticks, previous: old.idle_ticks, seconds: 1)
-            if let user, let system, let idle, user + system + idle > 0 {
-                result.userCPU = user / (user + system + idle) * 100
-                result.systemCPU = system / (user + system + idle) * 100
-                result.cpu = (result.userCPU ?? 0) + (result.systemCPU ?? 0)
-            }
+        let cpuCounters = SystemCPUCounters(
+            valid: raw.cpu_valid != 0,
+            user: raw.user_ticks,
+            system: raw.system_ticks,
+            idle: raw.idle_ticks,
+            nice: raw.nice_ticks
+        )
+        if let usage = systemCounterTracker.sample(cpuCounters) {
+            result.userCPU = usage.user; result.systemCPU = usage.system; result.cpu = usage.total
         }
-        result.memoryTotal = raw.memory_total; result.memoryUsed = raw.memory_used
-        result.memoryApp = raw.memory_app; result.memoryWired = raw.memory_wired
-        result.memoryCompressed = raw.memory_compressed; result.memoryCached = raw.memory_cached
-        result.swap = raw.swap; result.pressure = Int(raw.pressure)
+        let memory = SystemMemoryReading(
+            total: raw.memory_total, totalValid: raw.memory_total_valid != 0,
+            used: raw.memory_used, app: raw.memory_app, wired: raw.memory_wired,
+            compressed: raw.memory_compressed, cached: raw.memory_cached, vmValid: raw.memory_valid != 0,
+            swap: raw.swap, swapValid: raw.swap_valid != 0,
+            pressure: Int(raw.pressure), pressureValid: raw.pressure_valid != 0
+        )
+        if let total = memory.total { result.memoryTotal = total }
+        result.memoryUsed = memory.used; result.memoryApp = memory.app; result.memoryWired = memory.wired
+        result.memoryCompressed = memory.compressed; result.memoryCached = memory.cached
+        result.swap = memory.swap; result.pressure = memory.pressure
         if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: "/") {
             result.diskTotal = (attrs[.systemSize] as? NSNumber)?.doubleValue ?? 0
             result.diskFree = (attrs[.systemFreeSize] as? NSNumber)?.doubleValue ?? 0

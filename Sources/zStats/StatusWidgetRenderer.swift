@@ -29,7 +29,7 @@ struct StatusWidgetDisplay {
             var fraction: Double?
             switch metric {
             case .cpu, .gpu, .battery: fraction = metric.value(in: s).map { $0 / 100 }
-            case .memory: fraction = s.memoryTotal > 0 ? s.memoryUsed / s.memoryTotal : nil
+            case .memory: fraction = s.memoryUsed.flatMap { s.memoryTotal > 0 ? $0 / s.memoryTotal : nil }
             case .disk: fraction = s.diskTotal > 0 ? (s.diskTotal - s.diskFree) / s.diskTotal : nil
             default: fraction = nil
             }
@@ -55,7 +55,12 @@ struct StatusWidgetDisplay {
                 tooltip = metric.rawValue + (metric == .battery ? " temperature: " : " average temperature: ") + temperature(degrees, preference: store.preferences.temperatureUnit)
             }
             var history = store.referenceMode ? store.chartHistory(for: metric) : Array(store.recent.suffix(30)).map { metric.historyValue($0) }
-            if metric == .memory && widget.reading == .percentage { history = history.map { $0.map { s.memoryTotal > 0 ? $0 / s.memoryTotal * 100 : 0 } } }
+            if metric == .memory && widget.reading == .percentage {
+                history = history.map { value in
+                    guard let value, s.memoryTotal > 0 else { return nil }
+                    return value / s.memoryTotal * 100
+                }
+            }
             if metric == .disk && (widget.style == .graph || widget.style == .histogram) { tooltip = "Disk writes: " + Format.rate(s.diskWrite) }
             let prefix: CGFloat = widget.label == .none ? 0 : widget.label == .icon ? 18 : 25
             let width: CGFloat

@@ -5,7 +5,7 @@ enum ReferenceData {
     static var snapshot: SystemSnapshot {
         var s = SystemSnapshot()
         s.cpu = 27; s.userCPU = 19; s.systemCPU = 8; s.cores = 12; s.load = 3.41
-        s.memoryTotal = 64e9; s.memoryUsed = 52.63e9; s.memoryApp = 23.43e9; s.memoryWired = 5.37e9; s.memoryCompressed = 23.82e9; s.memoryCached = 10.32e9
+        s.memoryTotal = 64e9; s.memoryUsed = 52.63e9; s.memoryApp = 23.43e9; s.memoryWired = 5.37e9; s.memoryCompressed = 23.82e9; s.memoryCached = 10.32e9; s.swap = 8.4e9; s.pressure = 1
         s.diskTotal = 994.66e9; s.diskFree = 479.72e9; s.diskRead = 737e3; s.diskWrite = 195e3
         s.download = 8.1e6; s.upload = 4e3; s.received = 5.6e9; s.sent = 612e6; s.interface = "en0"
         s.gpu = 60; s.gpuMemory = 1.69e9; s.battery = 64; s.batteryMinutes = 166; s.batteryHealth = 76

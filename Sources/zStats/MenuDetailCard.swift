@@ -11,7 +11,7 @@ struct MenuDetailCard: View {
         VStack(alignment: .leading, spacing: 0) {
             hero.frame(height: 50)
             Color.clear.frame(height: 6)
-            if metric == .memory { memoryBar.frame(height: 6).padding(.vertical, 7) }
+            if metric == .memory, let memorySegments { memoryBar(memorySegments).frame(height: 6).padding(.vertical, 7) }
             statistics
             Divider().padding(.vertical, 10)
             rankings
@@ -29,11 +29,11 @@ struct MenuDetailCard: View {
                 }.frame(height: 33, alignment: .leading)
                 HStack(spacing: 6) {
                     Text(subtitle).lineLimit(1)
-                    if metric == .memory {
-                        Text(s.pressure >= 4 ? "High" : s.pressure >= 2 ? "Elevated" : "Normal")
-                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(pressureColor)
+                    if metric == .memory, let pressure = s.pressure {
+                        Text(pressure >= 4 ? "High" : pressure >= 2 ? "Elevated" : "Normal")
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(pressureColor(pressure))
                             .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(pressureColor.opacity(0.14), in: Capsule())
+                            .background(pressureColor(pressure).opacity(0.14), in: Capsule())
                     }
                 }.font(.system(size: 11)).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
@@ -59,7 +59,7 @@ struct MenuDetailCard: View {
         default: return ""
         }
     }
-    private var pressureColor: Color { s.pressure >= 4 ? .red : s.pressure >= 2 ? .orange : Metric.battery.menuColor }
+    private func pressureColor(_ pressure: Int) -> Color { pressure >= 4 ? .red : pressure >= 2 ? .orange : Metric.battery.menuColor }
 
     @ViewBuilder private var statistics: some View {
         switch metric {
@@ -72,7 +72,7 @@ struct MenuDetailCard: View {
             stat("App", Format.memory(s.memoryApp), dot: Metric.cpu.menuColor)
             stat("Wired", Format.memory(s.memoryWired), dot: Color(hex: 0xC65D31))
             stat("Compressed", Format.memory(s.memoryCompressed), dot: Metric.network.menuColor)
-            stat("Swap Used", s.swap == 0 ? "0 MB" : Format.memory(s.swap))
+            stat("Swap Used", s.swap.map { $0 == 0 ? "0 MB" : Format.memory($0) } ?? "—")
         case .disk:
             stat("Reading", Format.rate(s.diskRead))
             stat("Writing", Format.rate(s.diskWrite))
@@ -99,10 +99,14 @@ struct MenuDetailCard: View {
         }.font(.system(size: 12)).frame(height: 25)
     }
 
-    private var memoryBar: some View {
+    private var memorySegments: [Double]? {
+        guard let app = s.memoryApp, let wired = s.memoryWired, let compressed = s.memoryCompressed else { return nil }
+        return [app, wired, compressed]
+    }
+    private func memoryBar(_ segments: [Double]) -> some View {
         GeometryReader { proxy in
             HStack(spacing: 2) {
-                ForEach(Array(zip([s.memoryApp, s.memoryWired, s.memoryCompressed], [Metric.cpu.menuColor, Color(hex: 0xC65D31), Metric.network.menuColor]).enumerated()), id: \.offset) { _, segment in
+                ForEach(Array(zip(segments, [Metric.cpu.menuColor, Color(hex: 0xC65D31), Metric.network.menuColor]).enumerated()), id: \.offset) { _, segment in
                     Rectangle().fill(segment.1).frame(width: max(0, (proxy.size.width - 4) * min(1, segment.0 / max(1, s.memoryTotal))))
                 }
                 Spacer(minLength: 0)

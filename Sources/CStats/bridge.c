@@ -119,21 +119,33 @@ void zs_system(ZSSystem *r) {
     if (host_statistics(host, HOST_CPU_LOAD_INFO, (host_info_t)&cpu, &count) == KERN_SUCCESS) {
         r->user_ticks = cpu.cpu_ticks[CPU_STATE_USER]; r->system_ticks = cpu.cpu_ticks[CPU_STATE_SYSTEM];
         r->idle_ticks = cpu.cpu_ticks[CPU_STATE_IDLE]; r->nice_ticks = cpu.cpu_ticks[CPU_STATE_NICE];
+        r->cpu_valid = 1;
     }
-    uint64_t total = 0; size_t len = sizeof(total); sysctlbyname("hw.memsize", &total, &len, NULL, 0); r->memory_total = total;
+    uint64_t total = 0; size_t len = sizeof(total);
+    if (sysctlbyname("hw.memsize", &total, &len, NULL, 0) == 0 && len == sizeof(total) && total > 0) {
+        r->memory_total = total; r->memory_total_valid = 1;
+    }
     vm_statistics64_data_t vm; count = HOST_VM_INFO64_COUNT;
-    vm_size_t page = 0; host_page_size(host, &page);
-    if (host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&vm, &count) == KERN_SUCCESS) {
+    vm_size_t page = 0;
+    if (host_page_size(host, &page) == KERN_SUCCESS && page > 0 &&
+        host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&vm, &count) == KERN_SUCCESS) {
         r->memory_wired = (double)vm.wire_count * page;
         r->memory_compressed = (double)vm.compressor_page_count * page;
         r->memory_app = fmax(0, ((double)vm.internal_page_count - vm.purgeable_count) * page);
         r->memory_cached = ((double)vm.external_page_count + vm.purgeable_count) * page;
-        r->memory_used = fmin(total, r->memory_app + r->memory_wired + r->memory_compressed);
+        double used = r->memory_app + r->memory_wired + r->memory_compressed;
+        r->memory_used = r->memory_total_valid ? fmin(total, used) : used;
+        r->memory_valid = 1;
     }
     mach_port_deallocate(mach_task_self(), host);
     struct xsw_usage swap; len = sizeof(swap);
-    if (sysctlbyname("vm.swapusage", &swap, &len, NULL, 0) == 0) r->swap = swap.xsu_used;
-    int pressure = 1; len = sizeof(pressure); sysctlbyname("kern.memorystatus_vm_pressure_level", &pressure, &len, NULL, 0); r->pressure = pressure;
+    if (sysctlbyname("vm.swapusage", &swap, &len, NULL, 0) == 0 && len == sizeof(swap)) {
+        r->swap = swap.xsu_used; r->swap_valid = 1;
+    }
+    int pressure = 0; len = sizeof(pressure);
+    if (sysctlbyname("kern.memorystatus_vm_pressure_level", &pressure, &len, NULL, 0) == 0 && len == sizeof(pressure)) {
+        r->pressure = pressure; r->pressure_valid = 1;
+    }
     io_iterator_t iterator;
     if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOBlockStorageDriver"), &iterator) == KERN_SUCCESS) {
         io_object_t entry;
