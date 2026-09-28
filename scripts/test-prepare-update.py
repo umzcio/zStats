@@ -5,11 +5,14 @@ import hashlib
 import importlib.util
 import os
 from pathlib import Path
+import plistlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
+import zipfile
 
 
 sys.dont_write_bytecode = True
@@ -67,7 +70,11 @@ class FakeTools:
         if command[0] == self.archiver:
             if self.failure == "archive":
                 raise OSError("injected archive failure")
-            Path(command[-1]).write_bytes((Path(command[-2]) / "payload").read_bytes())
+            app = Path(command[-2])
+            with zipfile.ZipFile(command[-1], "w") as zipped:
+                for path in app.rglob("*"):
+                    if path.is_file():
+                        zipped.write(path, f"{app.name}/{path.relative_to(app)}")
             return
         if "--verify" in command:
             verified_path = Path(command[-1] if command[-1].endswith(".xml") else command[-2])
@@ -126,13 +133,26 @@ class PrepareUpdateTests(unittest.TestCase):
         self.archiver.touch()
         self.app = self.directory / "zStats.app"
         self.app.mkdir()
+        nested_info = self.app / "Contents" / "Frameworks" / "Sparkle.framework" / "Updater.app" / "Contents" / "Info.plist"
+        nested_info.parent.mkdir(parents=True)
+        with nested_info.open("wb") as stream:
+            plistlib.dump({"CFBundleShortVersionString": "2.10.0", "CFBundleVersion": "2100"}, stream)
         self.appcast = self.output / "appcast.xml"
         self.fake = FakeTools(self.archiver)
 
     def tearDown(self):
         self.temporary.cleanup()
 
-    def prepare(self, name, contents, prefix, **kwargs):
+    def prepare(self, name, contents, prefix, app_version=None, app_build=None, **kwargs):
+        name_match = module.ARCHIVE_NAME.fullmatch(name)
+        name_version, name_build = name_match.groups()
+        info_path = self.app / "Contents" / "Info.plist"
+        info_path.parent.mkdir(parents=True, exist_ok=True)
+        with info_path.open("wb") as stream:
+            plistlib.dump({
+                "CFBundleShortVersionString": app_version or name_version,
+                "CFBundleVersion": app_build or name_build,
+            }, stream)
         (self.app / "payload").write_bytes(contents)
         archive = self.output / name
         module.prepare_update(
@@ -299,6 +319,87 @@ class PrepareUpdateTests(unittest.TestCase):
             with self.assertRaises(module.PreparationError):
                 self.prepare("zStats-11.0.0-110.zip", b"locked", "https://example.com/v11.0.0/")
         self.prepare("zStats-11.0.0-110.zip", b"unlocked", "https://example.com/v11.0.0/")
+
+    def test_reused_and_decreasing_builds_fail_before_packaging(self):
+        self.prepare("zStats-1.0.0-10.zip", b"ten", "https://example.com/v1.0.0/")
+        archiver_calls = sum(command[0] == str(self.archiver) for command in self.fake.commands)
+        tool_calls = len(self.fake.commands)
+        for name in ("zStats-2.0.0-10.zip", "zStats-3.0.0-9.zip"):
+            with self.subTest(name=name), self.assertRaises(module.PreparationError):
+                self.prepare(name, b"rejected", "https://example.com/rejected/")
+            self.assertFalse((self.output / name).exists())
+            self.assertEqual(
+                sum(command[0] == str(self.archiver) for command in self.fake.commands),
+                archiver_calls,
+            )
+            self.assertEqual(len(self.fake.commands), tool_calls)
+
+        accepted = self.prepare("zStats-2.0.0-11.zip", b"eleven", "https://example.com/v2.0.0/")
+        self.assertTrue(accepted.exists())
+
+    def test_candidate_filename_cannot_hide_its_actual_bundle_build(self):
+        self.prepare("zStats-1.0.0-10.zip", b"ten", "https://example.com/v1.0.0/")
+        archiver_calls = sum(command[0] == str(self.archiver) for command in self.fake.commands)
+        tool_calls = len(self.fake.commands)
+        with self.assertRaises(module.PreparationError):
+            self.prepare(
+                "zStats-2.0.0-11.zip", b"renamed", "https://example.com/v2.0.0/",
+                app_build="10",
+            )
+        self.assertEqual(
+            sum(command[0] == str(self.archiver) for command in self.fake.commands),
+            archiver_calls,
+        )
+        self.assertEqual(len(self.fake.commands), tool_calls)
+
+    def test_malformed_or_inconsistent_retained_metadata_fails_closed(self):
+        archive = self.prepare("zStats-1.0.0-10.zip", b"ten", "https://example.com/v1.0.0/")
+        original_feed = self.appcast.read_bytes()
+        archive.write_bytes(b"not a zip")
+        with self.assertRaises(module.PreparationError):
+            self.prepare("zStats-2.0.0-11.zip", b"eleven", "https://example.com/v2.0.0/")
+        self.assertEqual(self.appcast.read_bytes(), original_feed)
+
+    def test_feed_and_retained_archive_builds_must_agree(self):
+        self.prepare("zStats-1.0.0-10.zip", b"ten", "https://example.com/v1.0.0/")
+        _, root = module._signed_xml(self.appcast)
+        root.find(f"channel/item/{module.VERSION}").text = "12"
+        inconsistent = signed_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+        self.appcast.write_bytes(inconsistent)
+        with self.assertRaises(module.PreparationError):
+            self.prepare("zStats-2.0.0-13.zip", b"thirteen", "https://example.com/v2.0.0/")
+        self.assertEqual(self.appcast.read_bytes(), inconsistent)
+
+    def test_empty_history_accepts_a_large_positive_build(self):
+        large_build = "99999999999999999999999999999999999999"
+        archive = self.prepare(
+            f"zStats-1.0.0-{large_build}.zip", b"large",
+            "https://example.com/v1.0.0/",
+        )
+        self.assertTrue(archive.exists())
+        self.assertIn(large_build, self.items())
+
+    def test_retained_archive_without_feed_is_rejected(self):
+        orphan = self.output / "zStats-1.0.0-10.zip"
+        orphan.write_bytes(b"orphan")
+        with self.assertRaises(module.PreparationError):
+            self.prepare("zStats-2.0.0-11.zip", b"eleven", "https://example.com/v2.0.0/")
+        self.assertTrue(orphan.exists())
+
+    def test_initial_transaction_metadata_failure_removes_owned_workspace(self):
+        with mock.patch.object(module, "_write_transaction", side_effect=OSError("injected metadata failure")):
+            with self.assertRaises(OSError):
+                self.prepare("zStats-1.0.0-10.zip", b"ten", "https://example.com/v1.0.0/")
+        self.assertEqual(list(self.output.glob(".prepare-update-*.zip-*")), [])
+
+    def test_unknown_nonempty_transaction_workspace_is_preserved(self):
+        name = "zStats-1.0.0-10.zip"
+        workspace = self.output / f".prepare-update-{name}-unknown"
+        workspace.mkdir()
+        (workspace / "user-notes").write_text("preserve", encoding="utf-8")
+        with self.assertRaises(module.PreparationError):
+            self.prepare(name, b"ten", "https://example.com/v1.0.0/")
+        self.assertEqual((workspace / "user-notes").read_text(encoding="utf-8"), "preserve")
 
 
 if __name__ == "__main__":

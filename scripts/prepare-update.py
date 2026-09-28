@@ -9,12 +9,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
 import subprocess
 import tempfile
 from urllib.parse import quote, unquote, urlsplit
 import xml.etree.ElementTree as ET
+import zipfile
 
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
@@ -159,6 +161,78 @@ def _remove_workspace(workspace, output_directory, prefix):
     if workspace.parent != output_directory or not workspace.name.startswith(prefix):
         raise PreparationError(f"Refusing to remove unexpected transaction workspace: {workspace}")
     shutil.rmtree(workspace)
+
+
+def _bundle_metadata(info, source):
+    version = info.get("CFBundleShortVersionString")
+    build = info.get("CFBundleVersion")
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise PreparationError(f"Invalid CFBundleShortVersionString in {source}")
+    if not isinstance(build, str) or not re.fullmatch(r"[1-9]\d*", build):
+        raise PreparationError(f"Invalid CFBundleVersion in {source}")
+    return version, build
+
+
+def _app_bundle_metadata(app):
+    info_path = app / "Contents" / "Info.plist"
+    try:
+        with info_path.open("rb") as stream:
+            return _bundle_metadata(plistlib.load(stream), info_path)
+    except (OSError, plistlib.InvalidFileException) as error:
+        raise PreparationError(f"Unable to read application metadata: {info_path}") from error
+
+
+def _archive_bundle_metadata(archive):
+    try:
+        with zipfile.ZipFile(archive) as zipped:
+            info_paths = [
+                name for name in zipped.namelist()
+                if (
+                    len(Path(name).parts) == 3
+                    and Path(name).parts[0].endswith(".app")
+                    and Path(name).parts[1:] == ("Contents", "Info.plist")
+                )
+            ]
+            if len(info_paths) != 1:
+                raise PreparationError(f"Archive must contain one application Info.plist: {archive}")
+            return _bundle_metadata(plistlib.loads(zipped.read(info_paths[0])), archive)
+    except (OSError, KeyError, plistlib.InvalidFileException, zipfile.BadZipFile) as error:
+        raise PreparationError(f"Unable to read archive metadata: {archive}") from error
+
+
+def _validate_build_history(candidate_version, candidate_build, archive, appcast, previous_items):
+    archive_match = ARCHIVE_NAME.fullmatch(archive.name)
+    if archive_match.groups() != (candidate_version, candidate_build):
+        raise PreparationError("Candidate archive name does not match the application version and build")
+
+    retained_names = set()
+    known_builds = []
+    for feed_build, item in previous_items.items():
+        if not re.fullmatch(r"[1-9]\d*", feed_build):
+            raise PreparationError(f"Prior feed has an invalid build number: {feed_build!r}")
+        archive_name = Path(unquote(urlsplit(item["url"]).path)).name
+        retained_archive = archive.parent / archive_name
+        name_match = ARCHIVE_NAME.fullmatch(archive_name)
+        if name_match is None:
+            raise PreparationError(f"Prior archive has an unexpected name: {archive_name}")
+        retained_version, retained_build = _archive_bundle_metadata(retained_archive)
+        if (
+            name_match.groups() != (retained_version, retained_build)
+            or feed_build != retained_build
+            or item["short_version"] != retained_version
+        ):
+            raise PreparationError(f"Prior release metadata is inconsistent: {archive_name}")
+        retained_names.add(archive_name)
+        known_builds.append(int(retained_build))
+
+    local_names = {path.name for path in archive.parent.glob("zStats-*.zip") if path.is_file()}
+    if local_names != retained_names:
+        source = appcast if appcast.exists() else archive.parent
+        raise PreparationError(f"Retained release history is incomplete or inconsistent: {source}")
+    if known_builds and int(candidate_build) <= max(known_builds):
+        raise PreparationError(
+            f"CFBundleVersion {candidate_build} must be greater than prior build {max(known_builds)}"
+        )
 
 
 def _verify_archives(items, directory, verifier, account, runner):
@@ -327,6 +401,7 @@ def prepare_update(
         raise PreparationError(f"Archive tool does not exist: {archiver}")
     if not app.exists():
         raise PreparationError(f"Application does not exist: {app}")
+    candidate_version, candidate_build = _app_bundle_metadata(app)
     if archive.suffix != ".zip":
         raise PreparationError(f"Update archive is not a ZIP: {archive}")
     archive_match = ARCHIVE_NAME.fullmatch(archive.name)
@@ -343,14 +418,18 @@ def prepare_update(
         if appcast.exists():
             previous_data, previous_root = _signed_xml(appcast)
             previous_items = _items(previous_root, appcast)
-            runner([str(verifier), "--verify", "--account", account, str(appcast)], appcast.parent)
-            _verify_archives(previous_items, appcast.parent, verifier, account, runner)
 
         if _recover_transaction(
             archive, appcast, verifier, account, download_url_prefix, previous_items,
             runner, replace, after_archive_promoted,
         ):
             return
+        _validate_build_history(
+            candidate_version, candidate_build, archive, appcast, previous_items,
+        )
+        if appcast.exists():
+            runner([str(verifier), "--verify", "--account", account, str(appcast)], appcast.parent)
+            _verify_archives(previous_items, appcast.parent, verifier, account, runner)
         if archive.exists():
             raise PreparationError(f"Archive already exists; use a new build number: {archive}")
 
@@ -364,7 +443,12 @@ def prepare_update(
             "download_url_prefix": download_url_prefix,
             "workspace_prefix": prefix,
         }
-        _write_transaction(workspace, metadata)
+        try:
+            _write_transaction(workspace, metadata)
+        except Exception:
+            if workspace.exists():
+                _remove_workspace(workspace, archive.parent, prefix)
+            raise
         try:
             staged_archive = workspace / archive.name
             staged_appcast = workspace / "appcast.xml"
