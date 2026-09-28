@@ -5,6 +5,7 @@ struct MetricView: View {
     @EnvironmentObject var store: MonitorStore
     var metric: Metric
     private var s: SystemSnapshot { store.snapshot }
+    private var historySummary: HistorySummary? { store.historySummary(for: metric) }
     var body: some View {
         VStack(spacing: 14) {
             Panel {
@@ -60,13 +61,13 @@ struct MetricView: View {
         case .memory: return [("Free", Format.memory(s.memoryTotal - s.memoryUsed)), ("Swap", Format.memory(s.swap))]
         case .disk: return [("Used", Format.memory(s.diskTotal - s.diskFree)), ("Writing", Format.rate(s.diskWrite))]
         case .network: return [("Session down", Format.memory(s.received)), ("Session up", Format.memory(s.sent))]
-        case .gpu: return [("Average", average), ("Peak", Format.percent(store.history(for: metric).max())), ("Temperature", StatusWidgetRenderer.temperature(s.gpuTemperature, preference: store.preferences.temperatureUnit))]
+        case .gpu: return [("Average", average), ("Peak", Format.percent(historySummary?.maximum)), ("Temperature", StatusWidgetRenderer.temperature(s.gpuTemperature, preference: store.preferences.temperatureUnit))]
         case .battery: return [("Remaining", Format.duration(s.batteryMinutes)), ("Cycles", Format.number(s.batteryCycles))]
         default: return []
         }
     }
     private var average: String {
-        let values = store.history(for: metric); return values.isEmpty ? "—" : Format.percent(values.reduce(0, +) / Double(values.count))
+        Format.percent(historySummary?.average)
     }
     private var summary: [(String, String, String)] {
         switch metric {
@@ -74,7 +75,7 @@ struct MetricView: View {
         case .memory: return [("App", Format.memory(s.memoryApp), "Application memory"), ("Wired", Format.memory(s.memoryWired), "Reserved by macOS"), ("Compressed", Format.memory(s.memoryCompressed), "Compressed in RAM"), ("Top App", store.apps(for: .memory).first?.name ?? "—", Format.memory(store.apps(for: .memory).first?.memory))]
         case .disk: return [("Reading", Format.rate(s.diskRead), "All physical disks"), ("Writing", Format.rate(s.diskWrite), "All physical disks"), ("Capacity", Format.memory(s.diskTotal), "Startup volume"), ("Top App", store.apps(for: .disk).first?.name ?? "—", Format.rate(store.apps(for: .disk).first?.writeRate))]
         case .network: return [("Uploading", Format.rate(s.upload), "Outbound traffic"), ("Downloaded", Format.memory(s.received), "Since zStats opened"), ("Uploaded", Format.memory(s.sent), "Since zStats opened"), ("Interface", s.interface, "Physical interfaces")]
-        case .gpu: return [("Memory", Format.memory(s.gpuMemory), "GPU memory in use"), ("Average", average, "Selected time range"), ("Peak", Format.percent(store.history(for: .gpu).max()), "Selected time range"), ("Availability", s.gpu == nil ? "Unavailable" : "Available", "Device counters")]
+        case .gpu: return [("Memory", Format.memory(s.gpuMemory), "GPU memory in use"), ("Average", average, "Selected time range"), ("Peak", Format.percent(historySummary?.maximum), "Selected time range"), ("Availability", s.gpu == nil ? "Unavailable" : "Available", "Device counters")]
         case .battery: return [("Power Draw", s.batteryWatts.map { Format.number($0, decimals: 1) + " W" } ?? "—", "Battery power"), ("Health", Format.percent(s.batteryHealth), "Maximum capacity"), ("Temperature", StatusWidgetRenderer.temperature(s.batteryTemperature, preference: store.preferences.temperatureUnit), "Battery sensor"), ("Cycles", Format.number(s.batteryCycles), "Charge cycles")]
         default: return []
         }

@@ -35,6 +35,20 @@ public struct HistoryArchive: Codable, Sendable {
     public func since(_ date: Date) -> [HistoryPoint] { points.filter { $0.date >= date } }
 }
 
+public struct HistorySummary: Equatable, Sendable {
+    public var average: Double
+    public var maximum: Double
+
+    public init?(values: [Double?]) {
+        let finiteValues = values.compactMap { value in
+            value.flatMap { $0.isFinite ? $0 : nil }
+        }
+        guard let maximum = finiteValues.max() else { return nil }
+        self.average = finiteValues.reduce(0, +) / Double(finiteValues.count)
+        self.maximum = maximum
+    }
+}
+
 public enum HistoryTimeline {
     /// Fixed time buckets preserve missing intervals instead of joining disjoint recording sessions.
     public static func buckets(_ points: [(Date, Double?)], start: Date, end: Date, count: Int) -> [Double?] {
@@ -47,5 +61,13 @@ public enum HistoryTimeline {
             sums[index] += value; counts[index] += 1
         }
         return (0..<count).map { counts[$0] == 0 ? nil : sums[$0] / Double(counts[$0]) }
+    }
+
+    public static func summary(_ points: [(Date, Double?)], start: Date, end: Date) -> HistorySummary? {
+        guard end >= start else { return nil }
+        return HistorySummary(values: points.compactMap { date, value in
+            guard date >= start, date <= end else { return nil }
+            return value
+        })
     }
 }

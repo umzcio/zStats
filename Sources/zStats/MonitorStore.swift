@@ -131,7 +131,13 @@ enum HistoryRange: String, CaseIterable {
         }
     }
 
-    func history(for metric: Metric) -> [Double] { chartHistory(for: metric).compactMap { $0 } }
+    func historySummary(for metric: Metric) -> HistorySummary? {
+        if referenceMode { return HistorySummary(values: ReferenceData.history(for: metric).map(Optional.some)) }
+        let end = live.date
+        let start = end.addingTimeInterval(-range.seconds)
+        let points = range == .live ? recent : archive.points
+        return HistoryTimeline.summary(points.map { ($0.date, metric.historyValue($0)) }, start: start, end: end)
+    }
 
     func chartHistory(for metric: Metric) -> [Double?] {
         if referenceMode { return ReferenceData.history(for: metric).map(Optional.some) }

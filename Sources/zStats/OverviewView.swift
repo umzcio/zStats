@@ -78,7 +78,7 @@ struct OverviewCard: View {
             MiniStat(label: "Compressed", value: Format.memory(s.memoryCompressed), dot: Metric.network.color)
         case .gpu:
             MiniStat(label: "Memory", value: Format.memory(s.gpuMemory))
-            MiniStat(label: "Average", value: average(.gpu)); MiniStat(label: "Peak", value: Format.percent(store.history(for: .gpu).max()))
+            MiniStat(label: "Average", value: average(.gpu)); MiniStat(label: "Peak", value: Format.percent(store.historySummary(for: .gpu)?.maximum))
         case .disk:
             MiniStat(label: "Reading", value: Format.rate(s.diskRead)); MiniStat(label: "Writing", value: Format.rate(s.diskWrite))
             MiniStat(label: "Used", value: Format.memory(s.diskTotal - s.diskFree, decimals: 1))
@@ -93,7 +93,7 @@ struct OverviewCard: View {
         }
     }
     private func average(_ metric: Metric) -> String {
-        let values = store.history(for: metric); return values.isEmpty ? "—" : Format.percent(values.reduce(0, +) / Double(values.count))
+        Format.percent(store.historySummary(for: metric)?.average)
     }
 }
 
