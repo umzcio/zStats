@@ -5,7 +5,7 @@
 <h1 align="center">zStats</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-5B9CF6?style=flat" alt="Version 0.1.0">
+  <img src="https://img.shields.io/badge/version-0.1.1-5B9CF6?style=flat" alt="Version 0.1.1">
   <a href="LICENSE"><img src="https://img.shields.io/badge/code_license-MIT-5B9CF6?style=flat" alt="Code license: MIT"></a>
   <a href="#build-and-run"><img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=flat&amp;logo=swift&amp;logoColor=white" alt="Swift toolchain 6.2 or later"></a>
   <img src="https://img.shields.io/badge/UI-SwiftUI_%7C_AppKit-5B9CF6?style=flat" alt="UI: SwiftUI and AppKit">
