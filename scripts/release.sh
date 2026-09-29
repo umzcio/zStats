@@ -11,6 +11,7 @@ source "$CONFIG"
 export ZSTATS_SIGNING_IDENTITY
 swift test --disable-sandbox
 python3 scripts/test-release-config.py
+python3 scripts/test-prepare-update.py
 bash scripts/build-app.sh
 APP="$PWD/dist/zStats.app"
 bash scripts/notarize.sh "$APP"

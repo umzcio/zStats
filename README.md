@@ -18,6 +18,10 @@ Keep CPU, GPU, memory, disk, network, battery and temperatures in view with a cu
 
 Built with SwiftUI, AppKit, Darwin and IOKit, with [Sparkle](https://sparkle-project.org/) for signed app updates. Requires macOS 26 (Tahoe) or later.
 
+## Install
+
+Download the signed and notarized DMG from [GitHub Releases](https://github.com/umzcio/zStats/releases/latest), open it, and drag zStats into Applications. Open Settings → About to check for updates.
+
 ## Build and run
 
 Building requires macOS 26 or later and Xcode 26 or later (Swift 6.2 or later), with full Xcode selected as the active developer directory. The app icon is compiled directly from `assets/brand/zStats.icon` using Apple's asset compiler.
