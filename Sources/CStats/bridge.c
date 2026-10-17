@@ -32,6 +32,21 @@ int zs_terminate(int32_t pid, uint64_t expected_start, int force) {
     if (pid <= 1 || pid == getpid() || expected_start == 0 || zs_process_start(pid) != expected_start) return ESRCH;
     return kill(pid, force ? SIGKILL : SIGTERM) == 0 ? 0 : errno;
 }
+/// Root-owned links such as /usr/bin/login (between a terminal and its shell) reject proc_pidinfo, which would
+/// orphan everything below them. sysctl still exposes their parent, so skip ahead to the nearest readable ancestor.
+static pid_t zs_visible_parent(pid_t parent) {
+    for (int hops = 0; hops < 16 && parent > 1; hops++) {
+        struct proc_bsdinfo b = {0};
+        if (proc_pidinfo(parent, PROC_PIDTBSDINFO, 0, &b, sizeof(b)) == sizeof(b)) return parent;
+        struct kinfo_proc info = {0};
+        size_t size = sizeof(info);
+        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, parent};
+        if (sysctl(mib, 4, &info, &size, NULL, 0) != 0 || size != sizeof(info)) return parent;
+        parent = info.kp_eproc.e_ppid;
+    }
+    return parent;
+}
+
 int zs_processes(ZSProcess **output) {
     *output = NULL;
     int bytes = proc_listallpids(NULL, 0);
@@ -49,7 +64,7 @@ int zs_processes(ZSProcess **output) {
         struct proc_bsdinfo b = {0};
         if (proc_pidinfo(pids[i], PROC_PIDTBSDINFO, 0, &b, sizeof(b)) != sizeof(b)) continue;
         ZSProcess *r = &rows[used++];
-        r->pid = pids[i]; r->parent = b.pbi_ppid; r->uid = b.pbi_uid;
+        r->pid = pids[i]; r->parent = zs_visible_parent(b.pbi_ppid); r->uid = b.pbi_uid;
         r->started = b.pbi_start_tvsec * 1000000ULL + b.pbi_start_tvusec;
         strlcpy(r->name, b.pbi_name[0] ? b.pbi_name : b.pbi_comm, sizeof(r->name));
         proc_pidpath(pids[i], r->path, sizeof(r->path));
