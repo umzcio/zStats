@@ -6,6 +6,18 @@ public enum ProcessGrouper {
         return String(path[..<range.lowerBound]) + ".app"
     }
 
+    private static let toolNames = ["claude": "Claude Code"]
+
+    /// Self-updating CLIs such as Claude Code install as `<tool>/versions/2.1.302`, so the executable name is a
+    /// version number. Key on the tool directory so every installed version shares one row.
+    public static func versionedTool(_ path: String) -> (key: String, name: String)? {
+        let parts = path.split(separator: "/")
+        guard parts.count >= 3, parts[parts.count - 2] == "versions",
+              parts[parts.count - 1].range(of: "^[0-9]+(\\.[0-9]+)+$", options: .regularExpression) != nil else { return nil }
+        let tool = String(parts[parts.count - 3])
+        return ("tool:/" + parts.dropLast(2).joined(separator: "/"), toolNames[tool] ?? tool)
+    }
+
     public static func group(_ processes: [ProcessReading]) -> [AppReading] {
         let byPID = Dictionary(processes.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a })
         var groups: [String: AppReading] = [:]
@@ -13,13 +25,15 @@ public enum ProcessGrouper {
             var current = process
             var visited: Set<Int32> = []
             var bundle: String?
+            var tool: (key: String, name: String)?
             while visited.insert(current.pid).inserted {
                 if let path = bundlePath(current.path) { bundle = path; break }
+                if let found = versionedTool(current.path) { tool = found; break }
                 guard current.parentPID > 1, let parent = byPID[current.parentPID] else { break }
                 current = parent
             }
-            let key = bundle ?? "process:\(process.path.isEmpty ? process.name : process.path)"
-            let name = bundle.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? process.name
+            let key = bundle ?? tool?.key ?? "process:\(process.path.isEmpty ? process.name : process.path)"
+            let name = bundle.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? tool?.name ?? process.name
             if groups[key] == nil { groups[key] = AppReading(id: key, name: name, bundlePath: bundle, processes: []) }
             groups[key]?.processes.append(process)
         }

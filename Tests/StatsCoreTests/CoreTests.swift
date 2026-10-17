@@ -24,6 +24,24 @@ import Testing
     #expect(editor?.processes.count == 3)
 }
 
+@Test func versionedToolsGroupAcrossVersionsWithReadableName() {
+    let rows = [
+        ProcessReading(pid: 30, parentPID: 1, name: "2.1.301", path: "/Users/me/.local/share/claude/versions/2.1.301", memory: 300, cpu: 3),
+        ProcessReading(pid: 31, parentPID: 1, name: "2.1.302", path: "/Users/me/.local/share/claude/versions/2.1.302", memory: 200, cpu: 2),
+        ProcessReading(pid: 32, parentPID: 31, name: "node", path: "/usr/local/bin/node", memory: 50, cpu: 1),
+        ProcessReading(pid: 40, parentPID: 1, name: "1.4.0", path: "/opt/tools/widget/versions/1.4.0", memory: 10, cpu: 1),
+        ProcessReading(pid: 50, parentPID: 1, name: "3.12", path: "/usr/local/bin/3.12", memory: 5, cpu: 1)
+    ]
+    let grouped = ProcessGrouper.group(rows)
+    let claude = grouped.first { $0.name == "Claude Code" }
+    #expect(grouped.count == 3)
+    #expect(claude?.processes.count == 3)
+    #expect(claude?.memory == 550)
+    #expect(claude?.bundlePath == nil)
+    #expect(grouped.contains { $0.name == "widget" })
+    #expect(grouped.contains { $0.name == "3.12" })
+}
+
 @Test func cyclesAndMissingParentsDoNotLoseProcesses() {
     let rows = [ProcessReading(pid: 2, parentPID: 3, name: "a", path: "/a"), ProcessReading(pid: 3, parentPID: 2, name: "b", path: "/b"), ProcessReading(pid: 4, parentPID: 900, name: "c", path: "/c")]
     #expect(ProcessGrouper.group(rows).flatMap(\.processes).count == 3)
