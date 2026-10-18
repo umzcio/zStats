@@ -97,7 +97,7 @@ struct MenuPanel: View {
             Text("Busiest Right Now").font(.system(size: 12)).foregroundStyle(.secondary).frame(height: 15)
             ForEach(store.apps(for: .cpu).prefix(3)) { app in
                 HStack(spacing: 9) {
-                    AppIcon(path: app.bundlePath, size: 16)
+                    AppIcon(path: app.iconPath, size: 16)
                     Text(app.name).lineLimit(1)
                     Spacer(minLength: 0)
                     Capsule().fill(Metric.cpu.menuColor.opacity(0.12)).frame(width: 56, height: 4)

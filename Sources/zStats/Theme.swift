@@ -94,6 +94,23 @@ import StatsCore
         guard FileManager.default.fileExists(atPath: path) else { return nil }
         let icon = NSWorkspace.shared.icon(forFile: path); icons[path] = icon; return icon
     }
+
+    private var companions: [String: String?] = [:]
+    func companionPath(bundleID: String) -> String? {
+        if let cached = companions[bundleID] { return cached }
+        let path = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?.path
+        companions[bundleID] = path; return path
+    }
+}
+
+extension AppReading {
+    /// CLI tools have no bundle of their own; borrow the icon of their desktop app when it is installed.
+    private static let companionApps = ["claude": "com.anthropic.claudefordesktop"]
+    @MainActor var iconPath: String? {
+        if let bundlePath { return bundlePath }
+        guard id.hasPrefix("tool:"), let bundleID = Self.companionApps[URL(fileURLWithPath: id).lastPathComponent] else { return nil }
+        return IconCache.shared.companionPath(bundleID: bundleID)
+    }
 }
 
 struct AppIcon: View {

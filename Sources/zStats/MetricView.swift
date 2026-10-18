@@ -117,7 +117,7 @@ struct AppTable: View {
                             ForEach(Array(rows.enumerated()), id: \.element.id) { index, app in
                                 Button { selectedApp = app } label: {
                                     HStack(spacing: 12) {
-                                        AppIcon(path: app.bundlePath)
+                                        AppIcon(path: app.iconPath)
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(app.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
                                             Text("\(app.processes.count) \(app.processes.count == 1 ? "process" : "processes")").font(.system(size: 10)).foregroundStyle(.secondary)
@@ -181,7 +181,7 @@ struct AppDetailSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 12) {
-                AppIcon(path: app.bundlePath, size: 42)
+                AppIcon(path: app.iconPath, size: 42)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(app.name).font(.system(size: 21, weight: .semibold))
                     Text("\(currentApp.processes.count) \(currentApp.processes.count == 1 ? "process" : "processes") · \(Format.memory(currentApp.memory)) · \(Format.percent(currentApp.cpu, decimals: 1)) CPU").font(.system(size: 12)).foregroundStyle(.secondary)

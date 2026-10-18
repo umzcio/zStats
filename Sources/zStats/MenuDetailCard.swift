@@ -137,7 +137,7 @@ struct MenuDetailCard: View {
             default: amount = app.memory; value = Format.memory(amount, decimals: (amount ?? 0) >= 1e9 ? 2 : 0)
             }
             guard amount != nil else { return nil }
-            return MenuAppRow(id: app.id, name: app.name, path: app.bundlePath, amount: amount, value: value, upload: app.upload)
+            return MenuAppRow(id: app.id, name: app.name, path: app.iconPath, amount: amount, value: value, upload: app.upload)
         }.prefix(5).map { $0 }
     }
     private var rankings: some View {
