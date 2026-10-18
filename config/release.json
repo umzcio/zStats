@@ -1,6 +1,6 @@
 {
-  "version": "0.1.2",
-  "build": 8,
+  "version": "0.1.3",
+  "build": 9,
   "updatesEnabled": true,
   "feedURL": "https://github.com/umzcio/zStats/releases/latest/download/appcast.xml",
   "publicEDKey": "4Fx3MwmKT2TOzXrDd8YIKJOCvMBQgdG/lKC7Sx2xKz8="
