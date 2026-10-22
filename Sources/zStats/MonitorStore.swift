@@ -142,10 +142,12 @@ enum HistoryRange: String, CaseIterable {
 
     func chartHistory(for metric: Metric) -> [Double?] {
         if referenceMode { return ReferenceData.history(for: metric).map(Optional.some) }
+        if range == .live {
+            let count = min(56, max(12, Int(ceil(range.seconds / preferences.refreshInterval))))
+            return HistoryTimeline.recent(recent.map { ($0.date, metric.historyValue($0)) }, count: count, interval: preferences.refreshInterval)
+        }
         let end = live.date
-        let start = end.addingTimeInterval(-range.seconds)
-        let points = range == .live ? recent : archive.points
-        return HistoryTimeline.buckets(points.map { ($0.date, metric.historyValue($0)) }, start: start, end: end, count: range == .live ? min(56, max(12, Int(ceil(range.seconds / preferences.refreshInterval)))) : 90)
+        return HistoryTimeline.buckets(archive.points.map { ($0.date, metric.historyValue($0)) }, start: end.addingTimeInterval(-range.seconds), end: end, count: 90)
     }
 
     func apps(for metric: Metric, matching query: String = "") -> [AppReading] {

@@ -63,6 +63,18 @@ public enum HistoryTimeline {
         return (0..<count).map { counts[$0] == 0 ? nil : sums[$0] / Double(counts[$0]) }
     }
 
+    /// Live charts plot consecutive samples. Real cadence is the refresh interval plus sampling time, so time buckets
+    /// sized to the interval alone left empty bars. Only a pause well past the interval (such as sleep) is shown as a gap.
+    public static func recent(_ points: [(Date, Double?)], count: Int, interval: TimeInterval) -> [Double?] {
+        var result: [Double?] = []
+        var previous: Date?
+        for (date, value) in points.suffix(count) {
+            if let previous, date.timeIntervalSince(previous) > interval * 3 { result.append(nil) }
+            result.append(value); previous = date
+        }
+        return Array(result.suffix(count))
+    }
+
     public static func summary(_ points: [(Date, Double?)], start: Date, end: Date) -> HistorySummary? {
         guard end >= start else { return nil }
         return HistorySummary(values: points.compactMap { date, value in

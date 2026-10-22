@@ -65,3 +65,19 @@ import Testing
     #expect(tenBuckets.reduce(0, +) / Double(tenBuckets.count) == 130.0 / 3)
     #expect(tenBuckets.max() == 100)
 }
+
+@Test func liveSamplesStayContiguousWhenCadenceRunsSlow() {
+    // 2 s refresh plus 0.3 s sampling time: 2.14 s time buckets would leave empty bars.
+    let start = Date(timeIntervalSince1970: 1_000)
+    let points = (0..<60).map { (start.addingTimeInterval(Double($0) * 2.3), Optional(Double($0))) }
+    let values = HistoryTimeline.recent(points, count: 56, interval: 2)
+    #expect(values.count == 56)
+    #expect(!values.contains { $0 == nil })
+    #expect(values.last == 59)
+}
+
+@Test func liveSamplesKeepRealGaps() {
+    let start = Date(timeIntervalSince1970: 1_000)
+    let points: [(Date, Double?)] = [(start, 1), (start.addingTimeInterval(2), 2), (start.addingTimeInterval(60), 3)]
+    #expect(HistoryTimeline.recent(points, count: 56, interval: 2) == [1, 2, nil, 3])
+}
