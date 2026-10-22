@@ -48,9 +48,9 @@ struct OverviewCard: View {
                         if metric == .memory, let pressure = s.pressure { PressureBadge(pressure: pressure) }
                     }
                 }
-                Spacer(minLength: 0)
-                HStack(spacing: 6) { stats }
-                BarHistory(values: store.chartHistory(for: metric), color: metric.color, ceiling: ceiling).frame(height: 39)
+                HStack(spacing: 6) { stats }.padding(.top, 4)
+                // Cards stretch with the window; let the chart take the extra height instead of leaving a blank band.
+                BarHistory(values: store.chartHistory(for: metric), color: metric.color, ceiling: ceiling).frame(minHeight: 39, maxHeight: .infinity)
             }
         }.overlay(RoundedRectangle(cornerRadius: 16).stroke(metric.color.opacity(hovered ? 0.24 : 0), lineWidth: 1))
             .onHover { hovered = $0 }
