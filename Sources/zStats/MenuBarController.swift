@@ -16,6 +16,7 @@ import StatsCore
     private var screenObserver: NSObjectProtocol?
     private var openDashboard: (() -> Void)?
     private var openPreferences: (() -> Void)?
+    private var pendingPreferences = false
     private var dockVisible: Bool?
     private var rememberedPosition: Bool?
     private var displays: [StatusWidgetDisplay] = []
@@ -26,9 +27,15 @@ import StatsCore
         self?.updateStatus()
     }
 
-    func start(store: MonitorStore, openDashboard: @escaping () -> Void, openPreferences: @escaping () -> Void) {
+    /// Supplied once the dashboard scene appears; SwiftUI's window actions are only reachable from inside a scene.
+    func setActions(openDashboard: @escaping () -> Void, openPreferences: @escaping () -> Void) {
         self.openDashboard = openDashboard
         self.openPreferences = openPreferences
+        if pendingPreferences { pendingPreferences = false; openPreferences() }
+    }
+
+    /// Called at launch rather than from the dashboard: a login-item launch never presents the dashboard window.
+    func start(store: MonitorStore) {
         guard item == nil else { return }
         self.store = store
         let item = NSStatusBar.system.statusItem(withLength: 64)
@@ -58,12 +65,12 @@ import StatsCore
         panel.animationBehavior = .none
         let hosting = NSHostingView(rootView: MenuPanel(openDashboard: { [weak self] in
             self?.hide()
-            self?.openDashboard?()
+            self?.showDashboard()
         }, onSelectionChange: { [weak self] metric in
             self?.panelSize = MenuPanel.size(for: metric, monitors: store.enabledMetrics)
             self?.positionPanel()
         }, openPreferences: { [weak self] in
-            self?.hide(); self?.openPreferences?()
+            self?.hide(); self?.showPreferences()
         }).environmentObject(store))
         hosting.sizingOptions = []
         panel.contentView = hosting
@@ -93,6 +100,20 @@ import StatsCore
             MainActor.assumeIsolated { self?.hide() }
         }
         updateStatus()
+    }
+
+    /// Before the dashboard has appeared, reopen the app the way Finder does; AppKit then presents the dashboard
+    /// window, whose scene supplies the SwiftUI actions.
+    private func showDashboard() {
+        if let openDashboard { openDashboard() } else { reopen() }
+    }
+
+    private func showPreferences() {
+        if let openPreferences { openPreferences() } else { pendingPreferences = true; reopen() }
+    }
+
+    private func reopen() {
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: NSWorkspace.OpenConfiguration())
     }
 
     @objc private func toggle(_ sender: NSStatusBarButton) {
@@ -177,7 +198,7 @@ struct DashboardScene: View {
     var body: some View {
         DashboardView().environmentObject(store).onAppear {
             let open = openWindow
-            menuBar.start(store: store, openDashboard: {
+            menuBar.setActions(openDashboard: {
                 open(id: "dashboard")
                 NSApp.activate(ignoringOtherApps: true)
             }, openPreferences: {

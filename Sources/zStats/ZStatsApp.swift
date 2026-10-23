@@ -34,8 +34,8 @@ import StatsCore
 
 struct ZStatsApp: App {
     @NSApplicationDelegateAdaptor(ZStatsAppDelegate.self) private var appDelegate
-    @StateObject private var store = MonitorStore()
-    @StateObject private var menuBar = MenuBarController()
+    @StateObject private var store = ZStatsAppDelegate.store
+    @StateObject private var menuBar = ZStatsAppDelegate.menuBar
     @StateObject private var updater = AppUpdater()
     var body: some Scene {
         Window("zStats", id: "dashboard") {
@@ -68,7 +68,12 @@ struct ZStatsApp: App {
 }
 
 @MainActor final class ZStatsAppDelegate: NSObject, NSApplicationDelegate {
+    // Shared with the scenes so the menu bar item can start before, or without, the dashboard window.
+    static let store = MonitorStore()
+    static let menuBar = MenuBarController()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.menuBar.start(store: Self.store)
         // In-place development builds can retain an old Dock icon even after
         // Launch Services registration. Refresh from actool's compiled artwork.
         if let url = Bundle.main.url(forResource: "zStats", withExtension: "icns"),
