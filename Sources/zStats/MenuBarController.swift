@@ -14,6 +14,7 @@ import StatsCore
     private var localMonitor: Any?
     private var spaceObserver: NSObjectProtocol?
     private var screenObserver: NSObjectProtocol?
+    private var windowCloseObserver: NSObjectProtocol?
     private var openDashboard: (() -> Void)?
     private var openPreferences: (() -> Void)?
     private var pendingPreferences = false
@@ -99,7 +100,19 @@ import StatsCore
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.hide() }
         }
+        // Reopening the app (Finder, Spotlight) makes macOS give it a Dock icon even with the Dock icon setting off.
+        // Drop it again once the last zStats window closes.
+        windowCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] note in
+            let closing = note.object as? NSWindow
+            MainActor.assumeIsolated { self?.hideDockIconIfNoWindows(closing: closing) }
+        }
         updateStatus()
+    }
+
+    private func hideDockIconIfNoWindows(closing: NSWindow?) {
+        guard let store, !store.preferences.showDockIcon, NSApp.activationPolicy() != .accessory else { return }
+        let open = NSApp.windows.contains { $0 !== closing && $0 !== panel && $0.isVisible && $0.level == .normal }
+        if !open { NSApp.setActivationPolicy(.accessory) }
     }
 
     /// Before the dashboard has appeared, reopen the app the way Finder does; AppKit then presents the dashboard
